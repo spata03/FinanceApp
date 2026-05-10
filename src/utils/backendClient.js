@@ -38,8 +38,11 @@ async function requestWithCsrfRetry(buildRequest) {
   try {
     return await buildRequest();
   } catch (error) {
-    if (error.status === 403) {
+    if (error.status === 403 && error.message?.includes('Token CSRF')) {
+      console.debug('[CSRF] Token invalidato, rifetching sessione...');
       invalidateSession();
+      // Piccolo delay per evitare conflitti immediati
+      await new Promise(resolve => setTimeout(resolve, 100));
       return buildRequest();
     }
     throw error;

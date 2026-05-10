@@ -204,18 +204,29 @@ async function init() {
   // ── Sincronizzazione automatica periodica ──
   let lastAutoSync = Date.now();
   let autoSyncInProgress = false;
-  const AUTO_SYNC_INTERVAL = 30000; // 30 secondi
+  const AUTO_SYNC_INTERVAL = 60000; // 60 secondi (ridotto per evitare conflitti CSRF)
 
   async function autoSync() {
     if (autoSyncInProgress || !getActiveAccount()?.authToken) return;
     autoSyncInProgress = true;
     try {
-      await store.syncWithBackend().catch(error => {
-        console.debug('[Store] Auto-sync fallito:', error.message);
-      });
-      lastAutoSync = Date.now();
-      if (syncTimeEl) {
-        syncTimeEl.textContent = 'Ultimo: ' + new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+      const result = await store.syncWithBackend();
+      if (result.available) {
+        lastAutoSync = Date.now();
+        if (syncTimeEl) {
+          syncTimeEl.textContent = 'Ultimo: ' + new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+        }
+        console.debug('[AutoSync] Success:', result.direction);
+      } else {
+        console.debug('[AutoSync] Failed:', result.error);
+      }
+    } catch (error) {
+      console.debug('[AutoSync] Error:', error.message);
+      // Se è un errore CSRF, invalida la sessione per il prossimo tentativo
+      if (error.message?.includes('Token CSRF') || error.status === 403) {
+        console.debug('[AutoSync] Invalidating session due to CSRF error');
+        // Importa e chiama invalidateSession
+        import('./utils/backendClient.js').then(({ invalidateSession }) => invalidateSession());
       }
     } finally {
       autoSyncInProgress = false;
