@@ -1,0 +1,34 @@
+{
+  "taskSlug": "finance-refactor-assistant",
+  "currentIteration": 2,
+  "currentStatus": "OK",
+  "reportPaths": {
+    "research": ".codex/workflows/finance-refactor-assistant/research.md",
+    "implementation": [
+      ".codex/workflows/finance-refactor-assistant/implementation-iteration-1.md",
+      ".codex/workflows/finance-refactor-assistant/implementation-iteration-2.md"
+    ],
+    "review": [
+      ".codex/workflows/finance-refactor-assistant/review-iteration-1.md"
+    ]
+  },
+  "acceptanceCriteria": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010"
+  ],
+  "verificationCommands": [
+    "python -m http.server 8084 --bind 127.0.0.1",
+    "Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8084/index.html",
+    "msedge --headless=new --disable-gpu --virtual-time-budget=5000 --dump-dom http://127.0.0.1:8084/tests/store-assistant.test.html",
+    "chrome --headless --disable-gpu --disable-software-rasterizer --virtual-time-budget=5000 --dump-dom http://127.0.0.1:8084/tests/page-imports.test.html"
+  ],
+  "unresolvedReviewFindings": []
+}

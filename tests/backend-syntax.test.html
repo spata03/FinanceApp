@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Backend syntax test</title>
+  </head>
+  <body>
+    <pre id="results">Running...</pre>
+    <script>
+      const results = document.getElementById('results');
+
+      try {
+        const request = new XMLHttpRequest();
+        request.open('GET', '../backend/server.js', false);
+        request.send();
+        if (request.status !== 200) throw new Error(`HTTP ${request.status}`);
+        new Function(request.responseText);
+
+        const fakePath = {
+          resolve: (...parts) => parts.join('/').replace(/\/+/g, '/'),
+          join: (...parts) => parts.join('/').replace(/\/+/g, '/'),
+          extname: file => (String(file).match(/\.[^./]+$/) || [''])[0],
+          relative: (parent, child) => child.startsWith(parent)
+            ? child.slice(parent.length).replace(/^\/+/, '')
+            : `../${child}`,
+          isAbsolute: value => String(value).startsWith('/'),
+        };
+        const fakeCrypto = {
+          randomBytes: () => ({ toString: () => 'a'.repeat(64) }),
+          createHmac: () => ({ update() { return this; }, digest: () => 'b'.repeat(64) }),
+          createHash: () => ({ update() { return this; }, digest: () => 'c'.repeat(64) }),
+          timingSafeEqual: () => true,
+        };
+        const fakeRequire = name => {
+          if (name === 'node:http') return { createServer: () => ({ listen() {} }) };
+          if (name === 'node:fs/promises') return {};
+          if (name === 'node:path') return fakePath;
+          if (name === 'node:crypto') return fakeCrypto;
+          throw new Error(`Unexpected require ${name}`);
+        };
+        const module = { exports: {} };
+        new Function('require', 'module', 'exports', '__dirname', 'process', 'console', request.responseText)(
+          fakeRequire,
+          module,
+          module.exports,
+          '/repo/backend',
+          { env: {} },
+          console
+        );
+
+        const reply = module.exports.buildAssistantReply('Come sto andando?', {
+          settings: { currency: 'EUR', locale: 'it-IT' },
+          recurringEntries: [
+            { type: 'income', amount: 1000, active: true },
+            { type: 'expense', amount: 100, active: true },
+          ],
+          recurringExpenses: [{ amount: 100, active: true }],
+          transactions: [
+            { type: 'income', amount: 1000, source: 'monthly', category: 'stipendio', date: new Date().toISOString().split('T')[0] },
+            { type: 'expense', amount: 100, source: 'monthly', category: 'abbonamenti', date: new Date().toISOString().split('T')[0] },
+          ],
+        });
+        if (!reply.includes('Analisi AI backend')) throw new Error('assistant backend reply missing');
+        if (!reply.includes('Entrate fisse')) throw new Error('assistant backend fixed income missing');
+
+        results.textContent = [
+          'PASS backend/server.js parses as JavaScript',
+          'PASS backend assistant logic returns a reply',
+        ].join('\n');
+      } catch (error) {
+        results.textContent = `FAIL ${error.message}`;
+        throw error;
+      }
+    </script>
+  </body>
+</html>

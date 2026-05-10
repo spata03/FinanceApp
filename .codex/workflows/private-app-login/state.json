@@ -1,0 +1,44 @@
+{
+  "taskSlug": "private-app-login",
+  "currentIteration": 1,
+  "currentStatus": "OK",
+  "reports": {
+    "research": ".codex/workflows/private-app-login/research.md",
+    "implementation": [
+      ".codex/workflows/private-app-login/implementation-iteration-1.md"
+    ],
+    "review": [
+      ".codex/workflows/private-app-login/review-iteration-1.md"
+    ],
+    "finalSummary": ".codex/workflows/private-app-login/final-summary.md"
+  },
+  "acceptanceCriteria": [
+    {
+      "id": "AC-001",
+      "description": "Il launcher Windows prova ad aprire l'app in finestra standalone Edge/Chrome --app= e mantiene fallback funzionante al browser predefinito."
+    },
+    {
+      "id": "AC-002",
+      "description": "L'app mostra una sezione utente in alto a destra con utente attivo, accesso/registrazione con password, cambio utente e blocco/logout."
+    },
+    {
+      "id": "AC-003",
+      "description": "Ogni utente locale usa una chiave dati separata, il primo account preserva i dati legacy finanza_personale_v1, e i test esistenti restano isolati."
+    },
+    {
+      "id": "AC-004",
+      "description": "L'app include metadata PWA minimi e README spiega i passaggi realistici per iPhone e uso privato su LAN/VPN senza pubblicazione Internet."
+    }
+  ],
+  "verificationCommands": [
+    "python -m http.server 8084 --bind 127.0.0.1",
+    "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe /nologo /target:winexe /out:FinanzaPersonale.exe /reference:System.dll /reference:System.Windows.Forms.dll /reference:System.Drawing.dll tools\\FinanzaPersonaleLauncher.cs",
+    "Chrome headless page-imports.test.html",
+    "Chrome headless backend-syntax.test.html",
+    "Chrome headless store-assistant.test.html",
+    "Chrome headless auth-store.test.html",
+    "Chrome headless index.html auth gate check",
+    "Invoke-WebRequest manifest.webmanifest and assets/icons/app-icon.svg"
+  ],
+  "unresolvedReviewFindings": []
+}

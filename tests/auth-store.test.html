@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Auth and store tests</title>
+  </head>
+  <body>
+    <pre id="results">Running...</pre>
+    <script>
+      window.__FP_AUTH_FORCE_FALLBACK__ = true;
+    </script>
+    <script type="module">
+      const results = document.getElementById('results');
+      const accountKey = 'finanza_personale_accounts_v1';
+      const activeKey = 'finanza_personale_active_account_v1';
+      const legacyKey = 'finanza_personale_v1';
+      const protectedKeys = [accountKey, activeKey, legacyKey];
+      const originals = new Map(protectedKeys.map(key => [key, localStorage.getItem(key)]));
+      const createdKeys = [];
+      const originalFetch = window.fetch?.bind(window);
+      const backend = { accounts: [] };
+      const log = [];
+
+      function jsonResponse(payload, status = 200) {
+        return new Response(JSON.stringify(payload), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      window.fetch = async (path, options = {}) => {
+        const url = new URL(path, window.location.href);
+        const method = options.method || 'GET';
+
+        if (url.pathname === '/api/session') {
+          return jsonResponse({ ok: true, csrfToken: 'test-csrf' });
+        }
+
+        if (url.pathname === '/api/sync/accounts' && method === 'GET') {
+          return jsonResponse({ schemaVersion: 1, accounts: backend.accounts });
+        }
+
+        if (url.pathname === '/api/sync/accounts' && method === 'PUT') {
+          backend.accounts = JSON.parse(options.body || '{}').accounts || [];
+          return jsonResponse({ schemaVersion: 1, accounts: backend.accounts });
+        }
+
+        if (url.pathname === '/api/sync/login' && method === 'POST') {
+          return jsonResponse({ error: 'Password non corretta.' }, 401);
+        }
+
+        return originalFetch(path, options);
+      };
+
+      function assert(condition, message) {
+        if (!condition) throw new Error(message);
+        log.push(`PASS ${message}`);
+      }
+
+      function restore() {
+        createdKeys.forEach(key => localStorage.removeItem(key));
+        protectedKeys.forEach(key => {
+          const value = originals.get(key);
+          if (value === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, value);
+        });
+      }
+
+      async function run() {
+      try {
+        protectedKeys.forEach(key => localStorage.removeItem(key));
+        localStorage.setItem(legacyKey, JSON.stringify({
+          transactions: [],
+          recurringEntries: [],
+          recurringExpenses: [],
+          savingsGoals: [],
+          settings: { currency: 'CHF', locale: 'it-IT' },
+        }));
+
+        const stamp = Date.now();
+        const auth = await import(`../src/data/auth.js?auth=${stamp}`);
+        assert(auth.listAccounts().length === 0, 'no local accounts after cleanup');
+
+        const first = await auth.registerAccount({
+          displayName: 'Andrea',
+          password: 'password123',
+        });
+        assert(first.storageKey === legacyKey, 'first user keeps legacy storage key');
+        assert(auth.getActiveAccount().displayName === 'Andrea', 'registered user becomes active');
+        const firstRawAccount = JSON.parse(localStorage.getItem(accountKey)).accounts[0];
+        assert(firstRawAccount.password.algorithm === 'fallback-hash', 'fallback password account can be created without SubtleCrypto');
+        assert(backend.accounts.some(account => account.displayName === 'Andrea'), 'registered account is pushed to backend sync');
+
+        const firstStoreModule = await import(`../src/data/store.js?first=${stamp}`);
+        const firstStore = firstStoreModule.store;
+        assert(firstStore.getStorageInfo().key === legacyKey, 'store uses first user storage key');
+        assert(firstStore.getSettings().currency === 'CHF', 'legacy settings are preserved for first user');
+        firstStore.updateSettings({ userName: 'Andrea' });
+
+        const second = await auth.registerAccount({
+          displayName: 'Bob',
+          password: 'password456',
+        });
+        createdKeys.push(second.storageKey);
+        assert(second.storageKey !== legacyKey, 'second user receives a separate storage key');
+        assert(auth.getActiveAccount().displayName === 'Bob', 'second user becomes active');
+
+        const secondStoreModule = await import(`../src/data/store.js?second=${stamp}`);
+        const secondStore = secondStoreModule.store;
+        assert(secondStore.getStorageInfo().key === second.storageKey, 'store switches to second user storage key');
+        assert(secondStore.getSettings().currency === 'EUR', 'second user starts with default settings');
+        secondStore.updateSettings({ currency: 'USD' });
+
+        let rejected = false;
+        try {
+          await auth.loginAccount(first.id, 'wrongpass');
+        } catch (error) {
+          rejected = true;
+        }
+        assert(rejected, 'wrong password is rejected');
+
+        await auth.loginAccount(first.id, 'password123');
+        const firstStoreAgainModule = await import(`../src/data/store.js?firstAgain=${stamp}`);
+        const firstStoreAgain = firstStoreAgainModule.store;
+        assert(firstStoreAgain.getStorageInfo().key === legacyKey, 'login restores first user storage key');
+        assert(firstStoreAgain.getSettings().userName === 'Andrea', 'first user data remains separate');
+
+        const secondState = JSON.parse(localStorage.getItem(second.storageKey));
+        assert(secondState.settings.currency === 'USD', 'second user data remains separate');
+
+        auth.logoutAccount();
+        assert(auth.getActiveAccount() === null, 'logout clears active account');
+
+        const remoteAccount = {
+          ...backend.accounts[0],
+          id: 'remote-sync-user',
+          displayName: 'Carla',
+          normalizedName: 'carla',
+          storageKey: `${legacyKey}_user_remote_sync`,
+        };
+        backend.accounts = [remoteAccount];
+        localStorage.removeItem(accountKey);
+        await auth.syncAccountsWithBackend({ force: true });
+        assert(auth.listAccounts().some(account => account.displayName === 'Carla'), 'backend account sync imports remote accounts');
+
+        results.textContent = log.join('\n');
+      } catch (error) {
+        results.textContent = `${log.join('\n')}\nFAIL ${error.message}`;
+        throw error;
+      } finally {
+        restore();
+        if (originalFetch) window.fetch = originalFetch;
+      }
+      }
+
+      run();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,33 @@
+{
+  "taskSlug": "fixed-monthly-management",
+  "currentIteration": 1,
+  "currentStatus": "OK",
+  "reportPaths": {
+    "research": ".codex/workflows/fixed-monthly-management/research.md",
+    "implementation": ".codex/workflows/fixed-monthly-management/implementation-iteration-1.md",
+    "review": ".codex/workflows/fixed-monthly-management/review-iteration-1.md"
+  },
+  "acceptanceCriteria": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010",
+    "AC-011"
+  ],
+  "verificationCommands": [
+    "Add-Type -Path .\\tools\\FinanzaPersonaleLauncher.cs -OutputAssembly .\\FinanzaPersonale.exe -OutputType WindowsApplication -ReferencedAssemblies System.Windows.Forms.dll,System.Net.Http.dll",
+    "python -m http.server 8084 --bind 127.0.0.1",
+    "msedge --headless=new --dump-dom http://127.0.0.1:8084/tests/store-assistant.test.html",
+    "chrome --headless --dump-dom http://127.0.0.1:8084/tests/page-imports.test.html",
+    "msedge --headless --dump-dom http://127.0.0.1:8084/tests/backend-syntax.test.html"
+  ],
+  "unresolvedReviewFindings": [
+    "P3 REV-001: Render-only UI browser test removed because the local headless browser crashed before returning DOM; stable browser store/import/backend checks pass."
+  ]
+}

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Store and assistant tests</title>
+  </head>
+  <body>
+    <pre id="results">Running...</pre>
+    <script>
+      window.__testStorageKey = 'finanza_personale_v1';
+      window.__testActiveAccountKey = 'finanza_personale_active_account_v1';
+      window.__testAccountKey = 'finanza_personale_accounts_v1';
+      window.__testSyncStorageKey = 'finanza_personale_v1_user_sync';
+      window.__testOriginalStorage = localStorage.getItem(window.__testStorageKey);
+      window.__testOriginalActiveAccount = localStorage.getItem(window.__testActiveAccountKey);
+      window.__testOriginalAccounts = localStorage.getItem(window.__testAccountKey);
+      window.__testOriginalSyncStorage = localStorage.getItem(window.__testSyncStorageKey);
+      window.__testOriginalFetch = window.fetch?.bind(window);
+      window.__testBackendState = { exists: false, state: null };
+      window.fetch = async (path, options = {}) => {
+        const url = new URL(path, window.location.href);
+        const method = options.method || 'GET';
+
+        if (url.pathname === '/api/session') {
+          return new Response(JSON.stringify({ ok: true, csrfToken: 'test-csrf' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.pathname === '/api/sync/state' && method === 'GET') {
+          return new Response(JSON.stringify(window.__testBackendState), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.pathname === '/api/sync/state' && method === 'PUT') {
+          window.__testBackendState = {
+            exists: true,
+            state: JSON.parse(options.body || '{}').state || null,
+          };
+          return new Response(JSON.stringify(window.__testBackendState), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        return window.__testOriginalFetch(path, options);
+      };
+      localStorage.removeItem(window.__testActiveAccountKey);
+      localStorage.removeItem(window.__testAccountKey);
+      localStorage.removeItem(window.__testSyncStorageKey);
+      localStorage.setItem(window.__testStorageKey, JSON.stringify({
+        transactions: { invalid: true },
+        recurringEntries: { invalid: true },
+        recurringExpenses: { invalid: true },
+        savingsGoals: null,
+        settings: { currency: 'USD' },
+      }));
+    </script>
+    <script type="module">
+      import { store } from '../src/data/store.js';
+      import { buildAssistantReply } from '../src/utils/assistant.js';
+      import { calcMonthlyOverview } from '../src/utils/calculations.js';
+
+      const results = document.getElementById('results');
+      const key = window.__testStorageKey;
+      const original = window.__testOriginalStorage;
+      const log = [];
+
+      function assert(condition, message) {
+        if (!condition) throw new Error(message);
+        log.push(`PASS ${message}`);
+      }
+
+      async function run() {
+      try {
+        assert(Array.isArray(store.getTransactions()), 'invalid transactions are repaired to an array');
+        assert(Array.isArray(store.getRecurringEntries()), 'invalid recurring entries are repaired to an array');
+        assert(Array.isArray(store.getRecurringExpenses()), 'invalid recurring expenses are repaired to an array');
+        assert(Array.isArray(store.getSavingsGoals()), 'invalid savings goals are repaired to an array');
+        assert(store.getSettings().currency === 'USD', 'saved currency is preserved');
+        assert(store.getSettings().locale === 'it-IT', 'missing locale default is restored');
+
+        localStorage.setItem(key, JSON.stringify({
+          transactions: [],
+          recurringExpenses: [{
+            id: 'legacy-rent',
+            amount: 500,
+            category: 'casa',
+            description: 'Affitto legacy',
+            startDate: new Date().toISOString().split('T')[0],
+            dayOfMonth: Number(new Date().toISOString().split('T')[0].split('-')[2]),
+            active: true,
+            generatedMonthKeys: [],
+          }],
+          settings: { currency: 'EUR' },
+        }));
+        const legacyModule = await import(`../src/data/store.js?legacy=${Date.now()}`);
+        const legacyStore = legacyModule.store;
+        assert(legacyStore.getRecurringEntries({ type: 'expense' }).length === 1, 'legacy recurring expenses migrate to recurring entries');
+        assert(legacyStore.getRecurringExpenses()[0].type === 'expense', 'legacy recurring expenses keep expense type');
+        assert(
+          legacyStore.getTransactions({ type: 'expense' }).some(tx => tx.source === 'monthly' && tx.recurringId === 'legacy-rent'),
+          'legacy recurring expense generates a monthly transaction'
+        );
+
+        store.reset();
+        const today = new Date().toISOString().split('T')[0];
+        store.addTransaction({
+          type: 'income',
+          amount: 2000,
+          category: 'stipendio',
+          description: '<b>salary</b>',
+          date: today,
+        });
+        store.addTransaction({
+          type: 'expense',
+          amount: 900,
+          category: 'alimentari',
+          description: '<script>alert(1)<\/script>',
+          date: today,
+        });
+        store.addTransaction({
+          type: 'expense',
+          amount: 200,
+          category: 'salvadanaio',
+          description: 'Risparmio mese',
+          date: today,
+        });
+        const recurringIncome = store.addRecurringEntry({
+          type: 'income',
+          amount: 1500,
+          category: 'stipendio',
+          description: 'Stipendio fisso',
+          startDate: today,
+          dayOfMonth: Number(today.split('-')[2]),
+        });
+        const generatedIncome = store.getTransactions({ type: 'income' })
+          .filter(tx => tx.source === 'monthly' && tx.recurringId === recurringIncome.id);
+        assert(generatedIncome.length === 1, 'monthly income generates one transaction for the current month');
+        store.updateRecurringEntry(recurringIncome.id, { amount: 1600 });
+        const updatedGeneratedIncome = store.getTransactions({ type: 'income' })
+          .filter(tx => tx.source === 'monthly' && tx.recurringId === recurringIncome.id);
+        assert(updatedGeneratedIncome[0].amount === 1600, 'editing recurring income updates the current month occurrence');
+        const recurring = store.addRecurringExpense({
+          amount: 120,
+          category: 'abbonamenti',
+          description: 'Palestra',
+          startDate: today,
+          dayOfMonth: Number(today.split('-')[2]),
+        });
+        const generatedMonthly = store.getTransactions({ type: 'expense' })
+          .filter(tx => tx.source === 'monthly' && tx.recurringId === recurring.id);
+        assert(generatedMonthly.length === 1, 'monthly expense generates one transaction for the current month');
+        store.applyMonthlyExpenses(new Date());
+        const afterReapply = store.getTransactions({ type: 'expense' })
+          .filter(tx => tx.source === 'monthly' && tx.recurringId === recurring.id);
+        assert(afterReapply.length === 1, 'monthly expense is not duplicated when reapplied');
+        const afterIncomeReapply = store.getTransactions({ type: 'income' })
+          .filter(tx => tx.source === 'monthly' && tx.recurringId === recurringIncome.id);
+        assert(afterIncomeReapply.length === 1, 'monthly income is not duplicated when reapplied');
+        const removable = store.addRecurringEntry({
+          type: 'expense',
+          amount: 33,
+          category: 'casa',
+          description: 'Future removable',
+          startDate: `${new Date().getFullYear() + 1}-01-01`,
+          dayOfMonth: 1,
+        });
+        store.deleteRecurringEntry(removable.id);
+        assert(!store.getRecurringEntries().some(entry => entry.id === removable.id), 'deleted recurring entry stays deleted');
+        const monthTxs = store.getTransactions({
+          month: new Date(today).getMonth(),
+          year: new Date(today).getFullYear(),
+        });
+        const overview = calcMonthlyOverview(monthTxs);
+        assert(overview.fixedIncome === 1600, 'overview separates fixed income');
+        assert(overview.variableIncome === 2000, 'overview separates variable income');
+        assert(overview.fixedExpenses === 120, 'overview separates fixed expenses');
+        assert(overview.variableExpenses === 900, 'overview separates variable expenses');
+        assert(overview.savings === 200, 'overview counts salvadanaio as savings');
+        assert(overview.liquidMoney === 2380, 'overview calculates free liquidity');
+
+        const reply = buildAssistantReply('Come sto andando questo mese?');
+        assert(reply.includes('entrate'), 'assistant returns a monthly summary');
+        assert(reply.includes('Valutazione AI'), 'assistant includes a reasoned AI assessment');
+        assert(reply.includes('Entrate fisse'), 'assistant includes fixed income analysis');
+        assert(reply.includes('Spese fisse'), 'assistant includes fixed expense analysis');
+        assert(reply.includes('Alimentari'), 'assistant includes top expense category');
+        assert(reply.includes('non consulenza finanziaria'), 'assistant includes non-advice note');
+
+        const syncAccount = {
+          id: 'sync-user',
+          displayName: 'Sync User',
+          normalizedName: 'sync user',
+          storageKey: window.__testSyncStorageKey,
+          password: { algorithm: 'fallback-hash', salt: 'salt', hash: 'hash', iterations: 1 },
+          createdAt: '2025-01-01T00:00:00.000Z',
+          lastLoginAt: null,
+        };
+        localStorage.setItem(window.__testAccountKey, JSON.stringify({ schemaVersion: 1, accounts: [syncAccount] }));
+        localStorage.setItem(window.__testActiveAccountKey, syncAccount.id);
+        localStorage.setItem(syncAccount.storageKey, JSON.stringify({
+          transactions: [],
+          recurringEntries: [],
+          recurringExpenses: [],
+          savingsGoals: [],
+          settings: { currency: 'EUR', locale: 'it-IT' },
+          meta: { schemaVersion: 3, updatedAt: '2024-01-01T00:00:00.000Z' },
+        }));
+        window.__testBackendState = {
+          exists: true,
+          state: {
+            transactions: [{
+              id: 'remote-tx',
+              type: 'income',
+              amount: 321,
+              category: 'stipendio',
+              description: 'Remote sync',
+              date: today,
+            }],
+            recurringEntries: [],
+            recurringExpenses: [],
+            savingsGoals: [],
+            settings: { currency: 'EUR', locale: 'it-IT' },
+            meta: { schemaVersion: 3, updatedAt: '2025-01-01T00:00:00.000Z' },
+          },
+        };
+        const syncModule = await import(`../src/data/store.js?sync=${Date.now()}`);
+        const syncStore = syncModule.store;
+        const syncResult = await syncStore.syncWithBackend();
+        assert(syncResult.direction === 'pull', 'store pulls newer backend state');
+        assert(syncStore.getTransactions().some(tx => tx.id === 'remote-tx'), 'synced backend transaction is available locally');
+
+        results.textContent = log.join('\n');
+      } catch (error) {
+        results.textContent = `${log.join('\n')}\nFAIL ${error.message}`;
+        throw error;
+      } finally {
+        if (original === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, original);
+        if (window.__testOriginalActiveAccount === null) localStorage.removeItem(window.__testActiveAccountKey);
+        else localStorage.setItem(window.__testActiveAccountKey, window.__testOriginalActiveAccount);
+        if (window.__testOriginalAccounts === null) localStorage.removeItem(window.__testAccountKey);
+        else localStorage.setItem(window.__testAccountKey, window.__testOriginalAccounts);
+        if (window.__testOriginalSyncStorage === null) localStorage.removeItem(window.__testSyncStorageKey);
+        else localStorage.setItem(window.__testSyncStorageKey, window.__testOriginalSyncStorage);
+        if (window.__testOriginalFetch) window.fetch = window.__testOriginalFetch;
+      }
+      }
+
+      run();
+    </script>
+  </body>
+</html>

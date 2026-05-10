@@ -1,0 +1,192 @@
+/* ============================================================
+   Main Layout – FinanzaPersonale
+   ============================================================ */
+
+/* ── App shell ── */
+#app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  min-height: 100dvh;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  padding: var(--sp-6) var(--sp-4);
+  background: var(--clr-surface);
+  border-right: 1px solid var(--clr-border);
+  overflow-y: auto;
+}
+
+.sidebar__logo {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-2);
+}
+
+.logo-icon {
+  font-size: var(--fs-xl);
+}
+
+.logo-text {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  background: linear-gradient(135deg, var(--clr-primary), var(--clr-accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Nav items ── */
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  flex: 1;
+}
+
+.nav-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--clr-text-muted);
+  transition: all var(--transition-base);
+  position: relative;
+  overflow: hidden;
+}
+
+.nav-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--clr-primary), var(--clr-accent));
+  opacity: 0;
+  transition: opacity var(--transition-base);
+  border-radius: inherit;
+}
+
+.nav-btn:hover {
+  color: var(--clr-text);
+  background: var(--clr-surface-2);
+}
+
+.nav-btn.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--clr-primary), var(--clr-accent));
+  box-shadow: var(--shadow-glow-primary);
+}
+
+.nav-btn.active .nav-icon,
+.nav-btn.active .nav-label {
+  position: relative;
+  z-index: 1;
+}
+
+.nav-icon {
+  font-size: var(--fs-base);
+  flex-shrink: 0;
+}
+
+.sidebar__footer {
+  padding: var(--sp-4);
+  font-size: var(--fs-xs);
+  color: var(--clr-text-subtle);
+  text-align: center;
+  border-top: 1px solid var(--clr-border);
+}
+
+/* ── Main content ── */
+.main-content {
+  padding: calc(var(--sp-8) + 3.25rem) var(--sp-8) var(--sp-8);
+  background: var(--clr-bg);
+  overflow-y: auto;
+}
+
+#page-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  animation: fadeIn var(--transition-slow) ease;
+}
+
+/* ── Page header ── */
+.page-header {
+  margin-bottom: var(--sp-8);
+}
+
+.page-header h1 {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-bold);
+  color: var(--clr-text);
+  line-height: var(--lh-tight);
+}
+
+.page-header p {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--clr-text-muted);
+}
+
+/* ── Grid utilities ── */
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-6); }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-6); }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-6); }
+
+/* ── Animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  #app {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: fixed;
+    left: -100%;
+    z-index: 100;
+    transition: left var(--transition-base);
+    height: 100dvh;
+    width: var(--sidebar-width);
+  }
+  .sidebar.open {
+    left: 0;
+  }
+  .main-content {
+    padding: calc(var(--sp-4) + 3.5rem) var(--sp-4) var(--sp-4);
+  }
+  .grid-3, .grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 580px) {
+  .grid-2, .grid-3, .grid-4 {
+    grid-template-columns: 1fr;
+  }
+}

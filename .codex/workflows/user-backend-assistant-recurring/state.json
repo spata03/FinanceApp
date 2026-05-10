@@ -1,0 +1,34 @@
+{
+  "taskSlug": "user-backend-assistant-recurring",
+  "currentIteration": 1,
+  "currentStatus": "OK",
+  "reports": {
+    "research": ".codex/workflows/user-backend-assistant-recurring/research.md",
+    "implementation": [
+      ".codex/workflows/user-backend-assistant-recurring/implementation-iteration-1.md"
+    ],
+    "review": [
+      ".codex/workflows/user-backend-assistant-recurring/review-iteration-1.md"
+    ],
+    "finalSummary": ".codex/workflows/user-backend-assistant-recurring/final-summary.md"
+  },
+  "acceptanceCriteria": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005"
+  ],
+  "verificationCommands": [
+    "node --check backend/server.js",
+    "headless browser tests for tests/store-assistant.test.html",
+    "headless browser tests for tests/page-imports.test.html"
+  ],
+  "unresolvedReviewFindings": [
+    {
+      "id": "REV-001",
+      "severity": "P3",
+      "status": "accepted-residual-risk"
+    }
+  ]
+}
