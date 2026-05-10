@@ -9,14 +9,16 @@ export function invalidateSession() {
 
 async function ensureFreshSession() {
   const now = Date.now();
+  // Se il token è scaduto o non existe, rinfrescalo
   if (!sessionPromise || !sessionTimestamp || (now - sessionTimestamp) > SESSION_TTL_MS) {
     invalidateSession();
-  }
-  if (!sessionPromise) {
     sessionTimestamp = Date.now();
     sessionPromise = requestJson('/api/session')
-      .then(session => ({ ...session, available: true }))
-      .catch(error => ({ available: false, error: error.message }));
+      .then(session => ({ ...session, available: true, timestamp: Date.now() }))
+      .catch(error => {
+        sessionPromise = null;
+        return { available: false, error: error.message };
+      });
   }
   return sessionPromise;
 }
@@ -227,10 +229,10 @@ export async function getSyncedState(accountId) {
 export async function saveSyncedState(accountId, state) {
   try {
     return await requestWithCsrfRetry(async () => {
-      // Sempre rinfrescare il token prima del PUT critico di sync
+      // Rinfrescare SEMPRE il token prima del PUT critico (invalida e rifetcha)
       invalidateSession();
       const session = await ensureFreshSession();
-      if (!session.available) return { available: false, error: session.error };
+      if (!session.available) throw new Error(session.error || 'Sessione non disponibile');
       const payload = await requestJson('/api/sync/state', {
         method: 'PUT',
         headers: {
