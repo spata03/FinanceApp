@@ -1,7 +1,24 @@
 let sessionPromise = null;
+let sessionTimestamp = null;
+const SESSION_TTL_MS = 30000; // Rinfrescare token ogni 30s per operazioni critiche
 
 export function invalidateSession() {
   sessionPromise = null;
+  sessionTimestamp = null;
+}
+
+async function ensureFreshSession() {
+  const now = Date.now();
+  if (!sessionPromise || !sessionTimestamp || (now - sessionTimestamp) > SESSION_TTL_MS) {
+    invalidateSession();
+  }
+  if (!sessionPromise) {
+    sessionTimestamp = Date.now();
+    sessionPromise = requestJson('/api/session')
+      .then(session => ({ ...session, available: true }))
+      .catch(error => ({ available: false, error: error.message }));
+  }
+  return sessionPromise;
 }
 
 async function parseJson(response) {
@@ -51,6 +68,7 @@ async function requestWithCsrfRetry(buildRequest) {
 
 export async function ensureBackendSession() {
   if (!sessionPromise) {
+    sessionTimestamp = Date.now();
     sessionPromise = requestJson('/api/session')
       .then(session => ({ ...session, available: true }))
       .catch(error => ({ available: false, error: error.message }));
@@ -73,7 +91,9 @@ export async function getBackendProfile() {
 export async function saveBackendProfile(profile) {
   try {
     return await requestWithCsrfRetry(async () => {
-      const session = await ensureBackendSession();
+      // Rinfrescare il token per operazioni PUT critiche
+      invalidateSession();
+      const session = await ensureFreshSession();
       if (!session.available) return { available: false, error: session.error };
       const savedProfile = await requestJson('/api/profile', {
         method: 'PUT',
@@ -105,7 +125,9 @@ export async function getSyncedAccounts() {
 export async function saveSyncedAccounts(accounts) {
   try {
     return await requestWithCsrfRetry(async () => {
-      const session = await ensureBackendSession();
+      // Rinfrescare il token per operazioni PUT critiche
+      invalidateSession();
+      const session = await ensureFreshSession();
       if (!session.available) return { available: false, error: session.error };
       const payload = await requestJson('/api/sync/accounts', {
         method: 'PUT',
@@ -125,7 +147,9 @@ export async function saveSyncedAccounts(accounts) {
 export async function deleteSyncedAccount(accountId) {
   try {
     return await requestWithCsrfRetry(async () => {
-      const session = await ensureBackendSession();
+      // Rinfrescare il token per operazioni DELETE critiche
+      invalidateSession();
+      const session = await ensureFreshSession();
       if (!session.available) return { available: false, error: session.error };
       await requestJson(`/api/sync/account?id=${encodeURIComponent(accountId)}`, {
         method: 'DELETE',
@@ -143,7 +167,9 @@ export async function deleteSyncedAccount(accountId) {
 export async function loginSyncedAccount(identifier, password) {
   try {
     return await requestWithCsrfRetry(async () => {
-      const session = await ensureBackendSession();
+      // Rinfrescare il token per operazioni POST critiche
+      invalidateSession();
+      const session = await ensureFreshSession();
       if (!session.available) return { available: false, error: session.error };
       const payload = await requestJson('/api/sync/login', {
         method: 'POST',
@@ -163,7 +189,9 @@ export async function loginSyncedAccount(identifier, password) {
 export async function authorizeSyncedAccount(accountId, authToken) {
   try {
     return await requestWithCsrfRetry(async () => {
-      const session = await ensureBackendSession();
+      // Rinfrescare il token per operazioni POST critiche
+      invalidateSession();
+      const session = await ensureFreshSession();
       if (!session.available) return { available: false, error: session.error };
       await requestJson('/api/sync/authorize', {
         method: 'POST',
@@ -199,7 +227,9 @@ export async function getSyncedState(accountId) {
 export async function saveSyncedState(accountId, state) {
   try {
     return await requestWithCsrfRetry(async () => {
-      const session = await ensureBackendSession();
+      // Sempre rinfrescare il token prima del PUT critico di sync
+      invalidateSession();
+      const session = await ensureFreshSession();
       if (!session.available) return { available: false, error: session.error };
       const payload = await requestJson('/api/sync/state', {
         method: 'PUT',
@@ -223,7 +253,9 @@ export async function saveSyncedState(accountId, state) {
 export async function analyzeWithBackend(question, state) {
   try {
     return await requestWithCsrfRetry(async () => {
-      const session = await ensureBackendSession();
+      // Rinfrescare il token per operazioni POST critiche
+      invalidateSession();
+      const session = await ensureFreshSession();
       if (!session.available) return { available: false, error: session.error };
       const result = await requestJson('/api/assistant/analyze', {
         method: 'POST',
