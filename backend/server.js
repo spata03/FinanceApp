@@ -91,11 +91,18 @@ function userIdFromSession(sessionId) {
   return crypto.createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
 }
 
+function generateCsrfToken(sessionId) {
+  // Firma il token con SESSION_SECRET, così rimane valido anche dopo restart
+  return crypto.createHmac('sha256', SESSION_SECRET)
+    .update(sessionId)
+    .digest('hex');
+}
+
 function createSession(sessionId = crypto.randomBytes(32).toString('hex')) {
   const session = {
     id: sessionId,
     userId: userIdFromSession(sessionId),
-    csrfToken: crypto.randomBytes(24).toString('hex'),
+    csrfToken: generateCsrfToken(sessionId), // Token calcolato, non random
     createdAt: Date.now(),
     authorizedAccountIds: new Set(),
   };
@@ -133,8 +140,10 @@ function getSession(req, res) {
 
 function assertCsrf(req, session) {
   const token = req.headers['x-csrf-token'];
-  const valid = token === session.csrfToken;
-  console.log(`[CSRF] Check: received="${token?.slice(0, 10)}...", expected="${session.csrfToken?.slice(0, 10)}...", valid=${valid}`);
+  // Calcola il token atteso dalla sessionId, così è valido anche dopo restart
+  const expected = generateCsrfToken(session.id);
+  const valid = token === expected;
+  console.log(`[CSRF] Check: received="${token?.slice(0, 10)}...", expected="${expected?.slice(0, 10)}...", valid=${valid}`);
   return valid;
 }
 
