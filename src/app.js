@@ -200,6 +200,41 @@ async function init() {
   if (syncTimeEl) {
     syncTimeEl.textContent = 'Ultimo: ' + new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   }
+
+  // ── Sincronizzazione automatica periodica ──
+  let lastAutoSync = Date.now();
+  let autoSyncInProgress = false;
+  const AUTO_SYNC_INTERVAL = 30000; // 30 secondi
+
+  async function autoSync() {
+    if (autoSyncInProgress || !getActiveAccount()?.authToken) return;
+    autoSyncInProgress = true;
+    try {
+      await store.syncWithBackend().catch(error => {
+        console.debug('[Store] Auto-sync fallito:', error.message);
+      });
+      lastAutoSync = Date.now();
+      if (syncTimeEl) {
+        syncTimeEl.textContent = 'Ultimo: ' + new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+      }
+    } finally {
+      autoSyncInProgress = false;
+    }
+  }
+
+  setInterval(autoSync, AUTO_SYNC_INTERVAL);
+
+  // Sincronizza anche dopo ogni cambio significativo (con debounce)
+  let syncDebounceTimer = null;
+  store.subscribe(async () => {
+    clearTimeout(syncDebounceTimer);
+    syncDebounceTimer = setTimeout(() => {
+      if (Date.now() - lastAutoSync > 5000 && getActiveAccount()?.authToken) {
+        autoSync();
+      }
+    }, 2000); // Attendi 2 secondi dopo l'ultima modifica prima di sincronizzare
+  });
+
   syncActiveAccountName();
   updateCurrentMonth();
   bindSidebar();

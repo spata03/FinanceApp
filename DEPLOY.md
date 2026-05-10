@@ -34,7 +34,7 @@ Render offre hosting Node.js gratuito con persistenza dei dati.
    - Configurazione:
      - **Name**: `finanza-personale`
      - **Runtime**: `Node`
-     - **Build Command**: `echo "No build needed"`
+     - **Build Command**: `exit 0`
      - **Start Command**: `node backend/server.js`
      - **Instance Type**: Free
    - Aggiungi variabile d'ambiente:
