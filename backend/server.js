@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const ROOT_DIR = path.resolve(__dirname, '..');
 const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 const SYNC_ACCOUNTS_FILE = path.join(DATA_DIR, 'sync-accounts.json');
 const SYNC_STATE_DIR = path.join(DATA_DIR, 'sync-state');
 const PORT = Number(process.env.PORT || 8080);
@@ -99,6 +100,8 @@ function createSession(sessionId = crypto.randomBytes(32).toString('hex')) {
     authorizedAccountIds: new Set(),
   };
   sessions.set(sessionId, session);
+  // Persist sessions asynchronously
+  writeSessions(sessions).catch(error => console.error('Error saving session:', error));
   return session;
 }
 
@@ -108,6 +111,8 @@ function getSession(req, res) {
   const session = verifiedId && sessions.has(verifiedId)
     ? sessions.get(verifiedId)
     : createSession(verifiedId || undefined);
+
+  console.log(`[SESSION] Cookie: ${cookies[SESSION_COOKIE]?.slice(0, 20)}..., Verified ID: ${verifiedId?.slice(0, 20)}..., Session exists: ${sessions.has(verifiedId)}, Created new: ${!sessions.has(verifiedId)}`);
 
   const cookieParts = [
     `${SESSION_COOKIE}=${encodeURIComponent(encodeSessionCookie(session.id))}`,
@@ -127,12 +132,17 @@ function getSession(req, res) {
 }
 
 function assertCsrf(req, session) {
-  return req.headers['x-csrf-token'] === session.csrfToken;
+  const token = req.headers['x-csrf-token'];
+  const valid = token === session.csrfToken;
+  console.log(`[CSRF] Check: received="${token?.slice(0, 10)}...", expected="${session.csrfToken?.slice(0, 10)}...", valid=${valid}`);
+  return valid;
 }
 
 function authorizeAccount(session, accountId) {
   if (!session.authorizedAccountIds) session.authorizedAccountIds = new Set();
   session.authorizedAccountIds.add(accountId);
+  // Persist sessions asynchronously
+  writeSessions(sessions).catch(error => console.error('Error saving session:', error));
 }
 
 function canAccessAccount(session, accountId) {
@@ -167,6 +177,38 @@ async function writeUsers(users) {
   const tmp = `${USERS_FILE}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(users, null, 2));
   await fs.rename(tmp, USERS_FILE);
+}
+
+async function readSessions() {
+  try {
+    const raw = await fs.readFile(SESSIONS_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    // Convert authorizedAccountIds back to Set
+    for (const session of Object.values(data)) {
+      if (session.authorizedAccountIds) {
+        session.authorizedAccountIds = new Set(session.authorizedAccountIds);
+      }
+    }
+    return data;
+  } catch (error) {
+    if (error.code === 'ENOENT') return {};
+    throw error;
+  }
+}
+
+async function writeSessions(sessions) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  const data = {};
+  for (const [id, session] of sessions) {
+    data[id] = {
+      ...session,
+      // Convert Set to array for JSON serialization
+      authorizedAccountIds: session.authorizedAccountIds ? Array.from(session.authorizedAccountIds) : [],
+    };
+  }
+  const tmp = `${SESSIONS_FILE}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(data, null, 2));
+  await fs.rename(tmp, SESSIONS_FILE);
 }
 
 function normalizeDisplayName(value = '') {
@@ -780,6 +822,16 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
+  // Load persisted sessions
+  readSessions().then(persistedSessions => {
+    for (const [id, session] of Object.entries(persistedSessions)) {
+      sessions.set(id, session);
+    }
+    console.log(`Loaded ${sessions.size} persisted sessions`);
+  }).catch(error => {
+    console.error('Error loading sessions:', error);
+  });
+
   server.listen(PORT, HOST, () => {
     const displayHost = HOST === '0.0.0.0' ? '<IP-locale>' : HOST;
     console.log(`FinanzaPersonale backend: http://${displayHost}:${PORT}`);
