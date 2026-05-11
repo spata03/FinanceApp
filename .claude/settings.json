@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(node -e ' *)",
-      "Read(//c/Users/Andre Spataro/.gemini/antigravity/scratch/personal-finance-app/src/data/**)"
+      "Read(//c/Users/Andre Spataro/.gemini/antigravity/scratch/personal-finance-app/src/data/**)",
+      "Read(//Users/andreapataro/Desktop/Betgames/**)",
+      "Read(//c/Users/andreapataro/Desktop/Betgames/**)",
+      "Bash(node -e \"const pkg = require\\('./package.json'\\); console.log\\(JSON.stringify\\({engines: pkg.engines, scripts: pkg.scripts, dependencies: pkg.dependencies, devDependencies: pkg.devDependencies}, null, 2\\)\\)\")",
+      "Bash(node -e \"const pkg = require\\('./node_modules/better-sqlite3/package.json'\\); console.log\\('better-sqlite3 version:', pkg.version\\); console.log\\('engines:', JSON.stringify\\(pkg.engines\\)\\)\")",
+      "Bash(node -e \"const lock = require\\('./package-lock.json'\\); const bsq = lock.packages['node_modules/better-sqlite3']; console.log\\(JSON.stringify\\(bsq, null, 2\\)\\)\")",
+      "Bash(node -e \"const lock = require\\('./package-lock.json'\\); const prebuild = lock.packages['node_modules/prebuild-install']; console.log\\(JSON.stringify\\(prebuild, null, 2\\)\\)\")",
+      "Bash(node -e \"const pkg = require\\('./node_modules/better-sqlite3/package.json'\\); console.log\\('install script:', pkg.scripts.install\\)\")",
+      "Bash(node -e \"const fs=require\\('fs'\\); JSON.parse\\(fs.readFileSync\\('c:/Users/Andrea Spataro/.gemini/antigravity/scratch/personal-finance-app/package.json','utf8'\\)\\); console.log\\('JSON valido'\\);\")",
+      "Bash(node -e \"const fs=require\\('fs'\\); JSON.parse\\(fs.readFileSync\\('package.json','utf8'\\)\\); console.log\\('JSON valido'\\);\")"
     ]
   },
   "agent": "orchestrator"
