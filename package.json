@@ -8,8 +8,7 @@
   "scripts": {
     "start": "node backend/server.js",
     "dev": "node backend/server.js",
-    "migrate": "node backend/migrate.js",
-    "postinstall": "npm rebuild better-sqlite3"
+    "migrate": "node backend/migrate.js"
   },
   "dependencies": {
     "better-sqlite3": "^9.6.0"

@@ -3,7 +3,7 @@ services:
     name: finanza-personale
     env: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install --build-from-source
     startCommand: node backend/server.js
     envVars:
       - key: NODE_ENV
