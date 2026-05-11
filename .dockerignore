@@ -2,7 +2,6 @@ node_modules
 backend/data
 .git
 .gitignore
-.npmrc
 *.md
 .node-version
 render.yaml

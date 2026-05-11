@@ -8,8 +8,11 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Install dependencies (build_from_source=true in .npmrc forces node-gyp compilation)
-COPY package.json package-lock.json .npmrc ./
+# Force better-sqlite3 to compile from source (skip prebuild-install downloads)
+ENV npm_config_build_from_source=true
+
+# Install dependencies
+COPY package.json package-lock.json ./
 RUN npm ci
 
 # Copy application code
