@@ -115,7 +115,7 @@ export async function registerAccount(email, password, profileUsername, profileP
       const session = await ensureFreshSession();
       if (!session.available) throw new Error(session.error || 'Sessione non disponibile');
     }
-    return requestJson('/api/auth/register', {
+    const result = await requestJson('/api/auth/register', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -123,6 +123,8 @@ export async function registerAccount(email, password, profileUsername, profileP
       },
       body: JSON.stringify({ email, password, profileUsername, profilePassword, currency, locale }),
     });
+    if (result.csrfToken) _csrfToken = result.csrfToken;
+    return result;
   });
 }
 
@@ -133,7 +135,7 @@ export async function loginAccount(email, password) {
   if (!session.available) throw new Error('Server non raggiungibile.');
 
   return requestWithCsrfRetry(async () => {
-    return requestJson('/api/auth/login', {
+    const result = await requestJson('/api/auth/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -141,6 +143,8 @@ export async function loginAccount(email, password) {
       },
       body: JSON.stringify({ email, password }),
     });
+    if (result.csrfToken) _csrfToken = result.csrfToken;
+    return result;
   });
 }
 
@@ -150,7 +154,7 @@ export async function selectProfile(profileId, password) {
       const session = await ensureFreshSession();
       if (!session.available) throw new Error(session.error || 'Sessione non disponibile');
     }
-    return requestJson('/api/auth/profile/select', {
+    const result = await requestJson('/api/auth/profile/select', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -158,6 +162,8 @@ export async function selectProfile(profileId, password) {
       },
       body: JSON.stringify({ profileId, password }),
     });
+    if (result.csrfToken) _csrfToken = result.csrfToken;
+    return result;
   });
 }
 

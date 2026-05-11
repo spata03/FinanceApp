@@ -18,6 +18,7 @@ import {
   assertUsername,
   assertPassword,
 } from '../data/auth-accounts.js';
+import { ensureBackendSession } from '../utils/backendClient.js';
 
 export async function renderProfilesPage(container) {
   const el = container || document.getElementById('app');
@@ -243,6 +244,7 @@ async function handleProfileLoginSubmit(el, modal, accountId) {
   if (submitBtn) submitBtn.disabled = true;
 
   try {
+    await ensureBackendSession().catch(() => null);
     await selectProfile(profileId, password);
     modal.style.display = 'none';
     window.location.hash = '#/dashboard';
@@ -264,6 +266,7 @@ async function handleCreateProfileSubmit(el, modal, accountId) {
   if (submitBtn) submitBtn.disabled = true;
 
   try {
+    await ensureBackendSession().catch(() => null);
     assertUsername(username);
     assertPassword(password);
     await createProfile(accountId, { username, password, currency, locale });
