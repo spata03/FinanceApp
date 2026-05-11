@@ -37,7 +37,9 @@
       "Bash(Test-Path manifest.webmanifest)",
       "Bash(Select-Object -ExpandProperty Name)",
       "Bash(grep -E \"\\\\.\\(css|html|js|svg|png|ico|webmanifest\\)$\")",
-      "Bash(git ls-tree *)"
+      "Bash(git ls-tree *)",
+      "Bash(node --check \"c:/Users/Andrea Spataro/.gemini/antigravity/scratch/personal-finance-app/src/app.js\")",
+      "Bash(node --check src/app.js)"
     ]
   },
   "agent": "orchestrator"

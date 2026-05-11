@@ -38,6 +38,110 @@ const ROUTES = {
   impostazioni: renderSettings,
 };
 
+// ── Shell restore ─────────────────────────────────────────────────────────────
+function ensureAppShell() {
+  // When accounts/profiles pages render, they write into #app directly,
+  // destroying the sidebar and main-content. Before rendering a regular page,
+  // we must ensure the shell is intact.
+  if (!document.getElementById('sidebar') || !document.getElementById('main-content')) {
+    const app = document.getElementById('app');
+    if (!app) return;
+
+    // Remove any old mobile hamburger/overlay to avoid duplicates after restore
+    const oldHamburger = document.querySelector('#hamburger-btn');
+    const oldOverlay = document.querySelector('#mobile-overlay');
+    if (oldHamburger) oldHamburger.remove();
+    if (oldOverlay) oldOverlay.remove();
+
+    // Restore the static shell (matches index.html exactly)
+    app.innerHTML = `
+      <nav id="sidebar" class="sidebar" role="navigation" aria-label="Menu principale">
+        <div class="sidebar__logo">
+          <span class="logo-icon">💰</span>
+          <span class="logo-text">FinanzaPersonale</span>
+        </div>
+
+        <ul class="sidebar__nav" role="menubar">
+          <li role="none">
+            <button id="nav-dashboard" class="nav-btn" role="menuitem" data-page="dashboard" aria-current="false">
+              <span class="nav-icon">📊</span>
+              <span class="nav-label">Dashboard</span>
+            </button>
+          </li>
+          <li role="none">
+            <button id="nav-entrate" class="nav-btn" role="menuitem" data-page="entrate" aria-current="false">
+              <span class="nav-icon">📈</span>
+              <span class="nav-label">Entrate</span>
+            </button>
+          </li>
+          <li role="none">
+            <button id="nav-spese" class="nav-btn" role="menuitem" data-page="spese" aria-current="false">
+              <span class="nav-icon">📉</span>
+              <span class="nav-label">Spese</span>
+            </button>
+          </li>
+          <li role="none">
+            <button id="nav-mensile" class="nav-btn" role="menuitem" data-page="mensile" aria-current="false">
+              <span class="nav-icon">📅</span>
+              <span class="nav-label">Mensile</span>
+            </button>
+          </li>
+          <li role="none">
+            <button id="nav-risparmi" class="nav-btn" role="menuitem" data-page="risparmi" aria-current="false">
+              <span class="nav-icon">🏦</span>
+              <span class="nav-label">Risparmi</span>
+            </button>
+          </li>
+          <li role="none">
+            <button id="nav-salvadanaio" class="nav-btn" role="menuitem" data-page="salvadanaio" aria-current="false">
+              <span class="nav-icon">🐷</span>
+              <span class="nav-label">Salvadanaio</span>
+            </button>
+          </li>
+          <li role="none">
+            <button id="nav-report" class="nav-btn" role="menuitem" data-page="report" aria-current="false">
+              <span class="nav-icon">📋</span>
+              <span class="nav-label">Report</span>
+            </button>
+          </li>
+          <li role="none">
+            <button id="nav-assistente" class="nav-btn" role="menuitem" data-page="assistente" aria-current="false">
+              <span class="nav-icon">💬</span>
+              <span class="nav-label">Assistente</span>
+            </button>
+          </li>
+          <li role="none">
+            <button id="nav-impostazioni" class="nav-btn" role="menuitem" data-page="impostazioni" aria-current="false">
+              <span class="nav-icon">⚙️</span>
+              <span class="nav-label">Impostazioni</span>
+            </button>
+          </li>
+        </ul>
+
+        <div id="sync-status-sidebar" style="margin-top:auto; padding: 0.5rem 1rem; font-size: 0.75rem; color: var(--clr-text-subtle); display:flex; flex-direction:column; gap:0.25rem; cursor:pointer;" title="Clicca per sincronizzare ora">
+          <div style="display:flex; align-items:center; gap:0.5rem;">
+            <span id="sync-icon">🔄</span>
+            <span id="sync-text">Sincronizzato</span>
+          </div>
+          <div id="sync-time" style="font-size:0.65rem; padding-left:1.5rem; opacity:0.8;">Mai sincronizzato</div>
+        </div>
+        <div class="sidebar__footer">
+          <span id="current-month" class="sidebar-month"></span>
+        </div>
+      </nav>
+
+      <main id="main-content" class="main-content" role="main">
+        <div id="page-container"></div>
+      </main>
+    `;
+
+    // Re-bind events on the restored shell
+    bindSidebar();
+    setupMobileSidebar();
+    updateCurrentMonth();
+  }
+}
+
 // ── Navigazione ───────────────────────────────────────────────────────────────
 function navigateTo(page) {
   if (!ROUTES[page]) page = 'dashboard';
@@ -46,10 +150,18 @@ function navigateTo(page) {
   const noSidebarPages = ['accounts', 'profiles'];
   const hasNoSidebar = noSidebarPages.includes(page);
 
-  // Mostra/nascondi sidebar
+  // Per le pagine regolari: garantiamo che la shell (sidebar + main-content)
+  // sia intatta — potrebbe essere stata distrutta da una pagina full-screen
+  if (!hasNoSidebar) {
+    ensureAppShell();
+  }
+
+  // Mostra/nascondi sidebar e main-content
   const sidebar = document.getElementById('sidebar');
+  const mainContent = document.getElementById('main-content');
   const topbar = document.getElementById('topbar');
   if (sidebar) sidebar.style.display = hasNoSidebar ? 'none' : '';
+  if (mainContent) mainContent.style.display = hasNoSidebar ? 'none' : '';
   if (topbar) topbar.style.display = hasNoSidebar ? 'none' : '';
 
   // Aggiorna stato attivo nella sidebar (solo se visibile)
@@ -67,30 +179,51 @@ function navigateTo(page) {
     history.replaceState(null, '', newHash);
   }
 
-  // Ottieni il container e sostituiscilo con un clone pulito
-  // (rimuove tutti i vecchi event listener senza doverli tracciare)
-  let container = document.getElementById('app');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'app';
-    const pageContainer = document.getElementById('page-container');
-    if (pageContainer) {
-      pageContainer.parentNode.insertBefore(container, pageContainer);
-    } else {
+  let container;
+
+  if (hasNoSidebar) {
+    // Pagine full-screen (accounts, profiles): renderizza dentro #app direttamente
+    container = document.getElementById('app');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'app';
       document.body.appendChild(container);
     }
+    container.style.opacity = '0';
+    container.style.transform = 'translateY(10px)';
+    requestAnimationFrame(() => {
+      ROUTES[page](container);
+      container.style.transition = 'opacity 0.22s ease, transform 0.22s ease';
+      container.style.opacity = '1';
+      container.style.transform = 'translateY(0)';
+    });
+  } else {
+    // Pagine regolari: renderizza dentro un nuovo #page-container dentro #main-content
+    // (sostituisce il vecchio nodo per rimuovere tutti i vecchi event listener)
+    const old = document.getElementById('page-container');
+    if (old) {
+      container = document.createElement('div');
+      container.id = 'page-container';
+      old.parentNode.replaceChild(container, old);
+    } else {
+      const mainEl = document.getElementById('main-content');
+      container = document.createElement('div');
+      container.id = 'page-container';
+      if (mainEl) {
+        mainEl.appendChild(container);
+      } else {
+        document.body.appendChild(container);
+      }
+    }
+    container.style.opacity = '0';
+    container.style.transform = 'translateY(10px)';
+    requestAnimationFrame(() => {
+      ROUTES[page](container);
+      container.style.transition = 'opacity 0.22s ease, transform 0.22s ease';
+      container.style.opacity = '1';
+      container.style.transform = 'translateY(0)';
+    });
   }
-
-  // Animazione entrata
-  container.style.opacity = '0';
-  container.style.transform = 'translateY(10px)';
-
-  requestAnimationFrame(() => {
-    ROUTES[page](container);
-    container.style.transition = 'opacity 0.22s ease, transform 0.22s ease';
-    container.style.opacity = '1';
-    container.style.transform = 'translateY(0)';
-  });
 }
 
 // ── Sidebar binding ───────────────────────────────────────────────────────────
@@ -182,6 +315,12 @@ function registerServiceWorker() {
 // ── Responsive: sidebar su mobile ────────────────────────────────────────────
 function setupMobileSidebar() {
   const sidebar = document.getElementById('sidebar');
+
+  // Remove stale elements if present (e.g. after shell restore from ensureAppShell)
+  const existingHamburger = document.querySelector('#hamburger-btn');
+  if (existingHamburger) existingHamburger.remove();
+  const existingOverlay = document.querySelector('#mobile-overlay');
+  if (existingOverlay) existingOverlay.remove();
 
   const hamburger = document.createElement('button');
   hamburger.id        = 'hamburger-btn';
