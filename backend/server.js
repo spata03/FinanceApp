@@ -1,25 +1,23 @@
+'use strict';
+
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
+const db = require('./db.js');
+
 const ROOT_DIR = path.resolve(__dirname, '..');
 const DATA_DIR = path.join(__dirname, 'data');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
-const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
-const SYNC_ACCOUNTS_FILE = path.join(DATA_DIR, 'sync-accounts.json');
-const SYNC_STATE_DIR = path.join(DATA_DIR, 'sync-state');
+const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'app.db');
+
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || '0.0.0.0';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_COOKIE = 'fp_session';
-const sessions = new Map();
-const MAX_SYNC_STATE_BYTES = 2 * 1024 * 1024;
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-// In-memory CSRF token store (resettato a ogni restart)
-// Struttura: sessionId → { token, expiresAt, requestCount }
-const csrfTokenStore = new Map();
-const CSRF_TOKEN_EXPIRATION_MS = 5 * 60 * 1000; // 5 minuti
+const MAX_SYNC_STATE_BYTES = 2 * 1024 * 1024;
 
 const ALLOWED_CURRENCIES = new Set(['EUR', 'USD', 'GBP', 'CHF']);
 const ALLOWED_LOCALES = new Set(['it-IT', 'en-US', 'de-DE', 'fr-FR']);
@@ -37,6 +35,8 @@ const MIME_TYPES = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
 };
+
+// ── Security headers ────────────────────────────────────────────────────────────
 
 function baseHeaders(extra = {}) {
   return {
@@ -65,6 +65,8 @@ function sendJson(res, status, payload, extraHeaders = {}) {
   res.end(JSON.stringify(payload));
 }
 
+// ── Cookie helpers ──────────────────────────────────────────────────────────────
+
 function parseCookies(header = '') {
   return header.split(';').reduce((cookies, part) => {
     const [rawName, ...rawValue] = part.trim().split('=');
@@ -83,7 +85,10 @@ function encodeSessionCookie(sessionId) {
 }
 
 function verifySessionCookie(value = '') {
-  const [sessionId, signature] = value.split('.');
+  const lastDot = value.lastIndexOf('.');
+  if (lastDot < 1) return null;
+  const sessionId = value.slice(0, lastDot);
+  const signature = value.slice(lastDot + 1);
   if (!sessionId || !signature) return null;
   const expected = signSessionId(sessionId);
   const a = Buffer.from(signature);
@@ -92,137 +97,70 @@ function verifySessionCookie(value = '') {
   return sessionId;
 }
 
-function userIdFromSession(sessionId) {
-  return crypto.createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
-}
-
-/**
- * Genera un token CSRF randomico per la sessione.
- * Il token viene memorizzato in-memory con expiration time.
- * Token validi solo per 5 minuti per prevenire replay attacks.
- */
-function generateAndStoreCsrfToken(sessionId) {
-  const token = crypto.randomBytes(32).toString('hex');
-  const now = Date.now();
-  const expiresAt = now + CSRF_TOKEN_EXPIRATION_MS;
-  const requestCount = 0;
-  
-  csrfTokenStore.set(sessionId, { token, expiresAt, requestCount });
-  
-  console.log(`[CSRF] Generato nuovo token per sessione ${sessionId.slice(0, 8)}..., expira tra ${CSRF_TOKEN_EXPIRATION_MS / 1000}s`);
-  
-  return token;
-}
-
-/**
- * Valida un token CSRF dalla richiesta.
- * Controlla che il token sia memorizzato, non scaduto e corrisponda.
- */
-function validateCsrfToken(sessionId, receivedToken) {
-  const stored = csrfTokenStore.get(sessionId);
-  
-  // Token non trovato
-  if (!stored) {
-    console.log(`[CSRF] Token store vuoto per sessione ${sessionId.slice(0, 8)}...`);
-    return false;
-  }
-  
-  // Token scaduto
-  if (Date.now() > stored.expiresAt) {
-    console.log(`[CSRF] Token scaduto per sessione ${sessionId.slice(0, 8)}..., cancellazione`);
-    csrfTokenStore.delete(sessionId);
-    return false;
-  }
-  
-  // Token mismatch
-  if (receivedToken !== stored.token) {
-    console.log(`[CSRF] Mismatch token per sessione ${sessionId.slice(0, 8)}..., ricevuto: ${receivedToken?.slice(0, 10)}..., atteso: ${stored.token?.slice(0, 10)}...`);
-    return false;
-  }
-  
-  // Token valido, incrementa counter
-  stored.requestCount++;
-  console.log(`[CSRF] Token valido per sessione ${sessionId.slice(0, 8)}..., request count: ${stored.requestCount}`);
-  
-  return true;
-}
-
-function createSession(sessionId = crypto.randomBytes(32).toString('hex')) {
-  const session = {
-    id: sessionId,
-    userId: userIdFromSession(sessionId),
-    createdAt: Date.now(),
-    authorizedAccountIds: new Set(),
-  };
-  sessions.set(sessionId, session);
-  
-  // Genera e memorizza il token CSRF per questa sessione
-  const csrfToken = generateAndStoreCsrfToken(sessionId);
-  
-  // Persist sessions asynchronously
-  writeSessions(sessions).catch(error => console.error('Error saving session:', error));
-  
-  return { ...session, csrfToken };
-}
-
-function getSession(req, res) {
-  const cookies = parseCookies(req.headers.cookie);
-  const verifiedId = verifySessionCookie(cookies[SESSION_COOKIE]);
-  const sessionExists = verifiedId && sessions.has(verifiedId);
-  const session = sessionExists
-    ? sessions.get(verifiedId)
-    : createSession(verifiedId || undefined);
-
-  console.log(`[SESSION] Cookie: ${cookies[SESSION_COOKIE]?.slice(0, 20)}..., Verified ID: ${verifiedId?.slice(0, 20)}..., Session exists: ${sessionExists}, Created new: ${!sessionExists}`);
-
+function setCookieHeader(req, sessionId) {
   const cookieParts = [
-    `${SESSION_COOKIE}=${encodeURIComponent(encodeSessionCookie(session.id))}`,
+    `${SESSION_COOKIE}=${encodeURIComponent(encodeSessionCookie(sessionId))}`,
     'HttpOnly',
     'SameSite=Lax',
     'Path=/',
     'Max-Age=2592000',
   ];
-
   if (req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https') {
+    cookieParts[cookieParts.indexOf('SameSite=Lax')] = 'SameSite=None';
     cookieParts.push('Secure');
   }
-
-  res.setHeader('Set-Cookie', cookieParts.join('; '));
-  if (!session.authorizedAccountIds) session.authorizedAccountIds = new Set();
-  
-  // Se la sessione esiste già, genera un nuovo token CSRF se scaduto
-  const stored = csrfTokenStore.get(session.id);
-  let csrfToken = null;
-  if (!stored || Date.now() > stored.expiresAt) {
-    csrfToken = generateAndStoreCsrfToken(session.id);
-  } else {
-    csrfToken = stored.token;
-  }
-  
-  return { ...session, csrfToken };
+  return cookieParts.join('; ');
 }
 
+function clearCookieHeader() {
+  return `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
+// ── Session management ──────────────────────────────────────────────────────────
+
+/**
+ * Get or create a session from the request cookie.
+ * Returns the DB session row (with csrf_token populated if needed).
+ */
+function getOrCreateSession(req, res) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  const raw = cookies[SESSION_COOKIE];
+  const verifiedId = verifySessionCookie(raw);
+
+  let session = null;
+  if (verifiedId) {
+    session = db.getSession(verifiedId);
+  }
+
+  if (!session) {
+    // Create brand-new session
+    const newId = crypto.randomBytes(32).toString('hex');
+    session = db.createSession({
+      id: newId,
+      expires_at: Date.now() + SESSION_TTL_MS,
+    });
+    // Generate CSRF token for new session
+    const csrfToken = db.generateCsrfToken(newId);
+    session = db.getSession(newId);
+    session.csrf_token = csrfToken;
+  }
+
+  res.setHeader('Set-Cookie', setCookieHeader(req, session.id));
+  db.updateSessionLastSeen(session.id);
+  return session;
+}
+
+// ── CSRF ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Validate the x-csrf-token header against the session's stored token.
+ */
 function assertCsrf(req, session) {
   const token = req.headers['x-csrf-token'];
-  const valid = validateCsrfToken(session.id, token);
-  
-  if (!valid) {
-    console.log(`[CSRF] Validazione fallita per sessione ${session.id.slice(0, 8)}...`);
-  }
-  
-  return valid;
+  return db.validateCsrfToken(session.id, token);
 }
 
-function authorizeAccount(session, accountId) {
-  if (!session.authorizedAccountIds) session.authorizedAccountIds = new Set();
-  session.authorizedAccountIds.add(accountId);
-  // Persist sessions asynchronously
-  writeSessions(sessions).catch(error => console.error('Error saving session:', error));
-}
-
-function canAccessAccount(session, accountId) {
-  return Boolean(session.authorizedAccountIds && session.authorizedAccountIds.has(accountId));
-}
+// ── Body parsing ────────────────────────────────────────────────────────────────
 
 async function readBody(req, maxBytes = 256 * 1024) {
   let body = '';
@@ -237,61 +175,10 @@ async function readBody(req, maxBytes = 256 * 1024) {
   return body ? JSON.parse(body) : {};
 }
 
-async function readUsers() {
-  try {
-    const raw = await fs.readFile(USERS_FILE, 'utf8');
-    return JSON.parse(raw);
-  } catch (error) {
-    if (error.code === 'ENOENT') return {};
-    throw error;
-  }
-}
+// ── Input sanitizers ────────────────────────────────────────────────────────────
 
-async function writeUsers(users) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  const tmp = `${USERS_FILE}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(users, null, 2));
-  await fs.rename(tmp, USERS_FILE);
-}
-
-async function readSessions() {
-  try {
-    const raw = await fs.readFile(SESSIONS_FILE, 'utf8');
-    const data = JSON.parse(raw);
-    // Convert authorizedAccountIds back to Set
-    for (const session of Object.values(data)) {
-      if (session.authorizedAccountIds) {
-        session.authorizedAccountIds = new Set(session.authorizedAccountIds);
-      }
-    }
-    return data;
-  } catch (error) {
-    if (error.code === 'ENOENT') return {};
-    throw error;
-  }
-}
-
-async function writeSessions(sessions) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  const data = {};
-  for (const [id, session] of sessions) {
-    data[id] = {
-      ...session,
-      // Convert Set to array for JSON serialization
-      authorizedAccountIds: session.authorizedAccountIds ? Array.from(session.authorizedAccountIds) : [],
-    };
-  }
-  const tmp = `${SESSIONS_FILE}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(data, null, 2));
-  await fs.rename(tmp, SESSIONS_FILE);
-}
-
-function normalizeDisplayName(value = '') {
-  return String(value).trim().replace(/\s+/g, ' ');
-}
-
-function normalizedLookup(value = '') {
-  return normalizeDisplayName(value).toLocaleLowerCase('it-IT');
+function normalizeEmail(value = '') {
+  return String(value).trim().toLowerCase();
 }
 
 function safeAccountId(value = '') {
@@ -299,175 +186,14 @@ function safeAccountId(value = '') {
   return /^[a-zA-Z0-9_-]{1,120}$/.test(id) ? id : '';
 }
 
-function safeStorageKey(value = '') {
-  const key = String(value).trim();
-  return /^[a-zA-Z0-9_-]{1,180}$/.test(key) ? key : '';
-}
-
 function isoDateOrNull(value) {
   const time = Date.parse(value || '');
   return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
-function sanitizePasswordRecord(record = {}) {
-  const algorithm = record.algorithm === 'pbkdf2-sha256' || record.algorithm === 'fallback-hash'
-    ? record.algorithm
-    : '';
-  const salt = String(record.salt || '').slice(0, 256);
-  const hash = String(record.hash || '').slice(0, 512);
-  const iterations = Math.max(1, Math.min(1000000, Number(record.iterations) || 1));
-
-  if (!algorithm || !salt || !hash) return null;
-  return { algorithm, salt, hash, iterations };
-}
-
-function fallbackHash(password, salt) {
-  const text = `${salt}:${password}`;
-  let hash = 2166136261;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
-}
-
-function constantTimeStringEqual(a = '', b = '') {
-  const first = Buffer.from(String(a));
-  const second = Buffer.from(String(b));
-  if (first.length !== second.length) return false;
-  return crypto.timingSafeEqual(first, second);
-}
-
-function passwordHashForRecord(password, record) {
-  if (record.algorithm === 'pbkdf2-sha256') {
-    return crypto.pbkdf2Sync(
-      String(password || ''),
-      Buffer.from(record.salt, 'base64'),
-      record.iterations || 120000,
-      32,
-      'sha256'
-    ).toString('base64');
-  }
-
-  return fallbackHash(String(password || ''), record.salt);
-}
-
-function verifyPasswordRecord(password, record) {
-  const cleanRecord = sanitizePasswordRecord(record);
-  if (!cleanRecord) return false;
-  return constantTimeStringEqual(passwordHashForRecord(password, cleanRecord), cleanRecord.hash);
-}
-
-function sanitizeSyncAccount(account = {}) {
-  const id = safeAccountId(account.id);
-  const displayName = normalizeDisplayName(account.displayName).slice(0, 80);
-  const storageKey = safeStorageKey(account.storageKey);
-  const password = sanitizePasswordRecord(account.password);
-
-  if (!id || displayName.length < 2 || !storageKey || !password) return null;
-
-  return {
-    id,
-    displayName,
-    normalizedName: normalizedLookup(account.normalizedName || displayName),
-    storageKey,
-    password,
-    createdAt: isoDateOrNull(account.createdAt) || new Date().toISOString(),
-    lastLoginAt: isoDateOrNull(account.lastLoginAt),
-    authToken: String(account.authToken || '').slice(0, 128),
-  };
-}
-
-function accountRecordTime(account = {}) {
-  const time = Date.parse(account.lastLoginAt || account.createdAt || '');
-  return Number.isFinite(time) ? time : 0;
-}
-
-function mergeAccountRecord(current, next) {
-  if (!current) return next;
-  if (accountRecordTime(next) >= accountRecordTime(current)) {
-    return {
-      ...current,
-      ...next,
-      createdAt: current.createdAt || next.createdAt,
-      lastLoginAt: next.lastLoginAt || current.lastLoginAt,
-    };
-  }
-  return {
-    ...next,
-    ...current,
-    createdAt: next.createdAt || current.createdAt,
-    lastLoginAt: current.lastLoginAt || next.lastLoginAt,
-  };
-}
-
-function mergeSyncAccounts(existing = [], incoming = []) {
-  const byId = new Map();
-  [...existing, ...incoming]
-    .map(sanitizeSyncAccount)
-    .filter(Boolean)
-    .forEach(account => {
-      byId.set(account.id, mergeAccountRecord(byId.get(account.id), account));
-    });
-
-  const byName = new Map();
-  [...byId.values()].forEach(account => {
-    byName.set(account.normalizedName, mergeAccountRecord(byName.get(account.normalizedName), account));
-  });
-
-  return [...byName.values()]
-    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-}
-
-async function readSyncAccounts() {
-  try {
-    const raw = await fs.readFile(SYNC_ACCOUNTS_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    const accounts = Array.isArray(parsed) ? parsed : parsed.accounts;
-    return mergeSyncAccounts([], Array.isArray(accounts) ? accounts : []);
-  } catch (error) {
-    if (error.code === 'ENOENT') return [];
-    throw error;
-  }
-}
-
-async function writeSyncAccounts(accounts) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  const tmp = `${SYNC_ACCOUNTS_FILE}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify({ schemaVersion: 1, accounts }, null, 2));
-  await fs.rename(tmp, SYNC_ACCOUNTS_FILE);
-}
-
-function stateFileForAccount(accountId) {
-  const safeId = safeAccountId(accountId);
-  if (!safeId) {
-    const error = new Error('Account non valido');
-    error.status = 400;
-    throw error;
-  }
-  return path.join(SYNC_STATE_DIR, `${safeId}.json`);
-}
-
-/**
- * Percorso del file di stato per un profilo dentro un account
- * Supporta il nuovo sistema account/profili
- */
-function stateFileForProfile(accountId, profileId) {
-  const safeAccountId = safeAccountId(accountId);
-  const safeProfileId = safeAccountId(profileId); // Reuse safeAccountId validator
-  if (!safeAccountId || !safeProfileId) {
-    const error = new Error('Account o profilo non valido');
-    error.status = 400;
-    throw error;
-  }
-  const accountDir = path.join(SYNC_STATE_DIR, safeAccountId);
-  return path.join(accountDir, `${safeProfileId}.json`);
-}
-
 function sanitizeSyncState(state = {}) {
   const input = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
   const meta = input.meta && typeof input.meta === 'object' ? input.meta : {};
-
   return {
     ...input,
     transactions: Array.isArray(input.transactions) ? input.transactions : [],
@@ -484,42 +210,6 @@ function sanitizeSyncState(state = {}) {
   };
 }
 
-async function readSyncState(accountId, profileId = null) {
-  try {
-    // Se profileId fornito, usa il nuovo formato per profilo
-    const file = profileId
-      ? stateFileForProfile(accountId, profileId)
-      : stateFileForAccount(accountId);
-    
-    const raw = await fs.readFile(file, 'utf8');
-    const parsed = JSON.parse(raw);
-    return {
-      exists: true,
-      state: sanitizeSyncState(parsed.state || parsed),
-    };
-  } catch (error) {
-    if (error.code === 'ENOENT') return { exists: false, state: null };
-    throw error;
-  }
-}
-
-async function writeSyncState(accountId, state, profileId = null) {
-  const cleanState = sanitizeSyncState(state);
-  
-  // Se profileId fornito, usa il nuovo formato per profilo
-  const file = profileId
-    ? stateFileForProfile(accountId, profileId)
-    : stateFileForAccount(accountId);
-  
-  // Crea directory se necessario
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  
-  const tmp = `${file}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify({ schemaVersion: 1, state: cleanState }, null, 2));
-  await fs.rename(tmp, file);
-  return cleanState;
-}
-
 function sanitizeProfile(profile = {}) {
   const userName = String(profile.userName || '').trim().slice(0, 80);
   const currency = ALLOWED_CURRENCIES.has(profile.currency) ? profile.currency : 'EUR';
@@ -530,6 +220,12 @@ function sanitizeProfile(profile = {}) {
 function isInsidePath(parent, child) {
   const relative = path.relative(parent, child);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+// ── Assistant analysis (unchanged logic) ────────────────────────────────────────
+
+function normalizeDisplayName(value = '') {
+  return String(value).trim().replace(/\s+/g, ' ');
 }
 
 function currentMonthTransactions(transactions) {
@@ -551,7 +247,6 @@ function topExpenseCategory(transactions) {
   transactions
     .filter(tx => tx.type === 'expense')
     .forEach(tx => totals.set(tx.category, (totals.get(tx.category) || 0) + Number(tx.amount || 0)));
-
   return [...totals.entries()]
     .map(([category, total]) => ({ category, total }))
     .sort((a, b) => b.total - a.total)[0] || null;
@@ -577,15 +272,10 @@ function normalizeRecurringEntries(state = {}) {
     ? state.recurringExpenses.map(item => ({ ...item, type: 'expense' }))
     : [];
   const entries = Array.isArray(state.recurringEntries) ? state.recurringEntries : [];
-
   [...legacyExpenses, ...entries].forEach(item => {
     if (!item || typeof item !== 'object') return;
     const id = String(item.id || `${item.type}-${item.category}-${item.amount}-${item.startDate}`);
-    map.set(id, {
-      ...item,
-      type: item.type === 'income' ? 'income' : 'expense',
-      frequency: item.frequency === 'yearly' ? 'yearly' : 'monthly',
-    });
+    map.set(id, { ...item, type: item.type === 'income' ? 'income' : 'expense', frequency: item.frequency === 'yearly' ? 'yearly' : 'monthly' });
   });
   return [...map.values()];
 }
@@ -595,30 +285,12 @@ function isFixedSource(source) {
 }
 
 function monthlyOverview(transactions) {
-  const fixedIncome = transactions
-    .filter(tx => tx.type === 'income' && isFixedSource(tx.source))
-    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-  const variableIncome = transactions
-    .filter(tx => tx.type === 'income' && !isFixedSource(tx.source))
-    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-  const savings = transactions
-    .filter(tx => tx.type === 'expense' && tx.category === 'salvadanaio')
-    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-  const fixedExpenses = transactions
-    .filter(tx => tx.type === 'expense' && isFixedSource(tx.source) && tx.category !== 'salvadanaio')
-    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-  const variableExpenses = transactions
-    .filter(tx => tx.type === 'expense' && !isFixedSource(tx.source) && tx.category !== 'salvadanaio')
-    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-
-  return {
-    fixedIncome,
-    variableIncome,
-    fixedExpenses,
-    variableExpenses,
-    savings,
-    liquidMoney: fixedIncome + variableIncome - fixedExpenses - variableExpenses - savings,
-  };
+  const fixedIncome = transactions.filter(tx => tx.type === 'income' && isFixedSource(tx.source)).reduce((s, tx) => s + Number(tx.amount || 0), 0);
+  const variableIncome = transactions.filter(tx => tx.type === 'income' && !isFixedSource(tx.source)).reduce((s, tx) => s + Number(tx.amount || 0), 0);
+  const savings = transactions.filter(tx => tx.type === 'expense' && tx.category === 'salvadanaio').reduce((s, tx) => s + Number(tx.amount || 0), 0);
+  const fixedExpenses = transactions.filter(tx => tx.type === 'expense' && isFixedSource(tx.source) && tx.category !== 'salvadanaio').reduce((s, tx) => s + Number(tx.amount || 0), 0);
+  const variableExpenses = transactions.filter(tx => tx.type === 'expense' && !isFixedSource(tx.source) && tx.category !== 'salvadanaio').reduce((s, tx) => s + Number(tx.amount || 0), 0);
+  return { fixedIncome, variableIncome, fixedExpenses, variableExpenses, savings, liquidMoney: fixedIncome + variableIncome - fixedExpenses - variableExpenses - savings };
 }
 
 function buildAssistantReply(question = '', state = {}) {
@@ -630,12 +302,8 @@ function buildAssistantReply(question = '', state = {}) {
   const expense = sumByType(monthTxs, 'expense');
   const balance = income - expense;
   const overview = monthlyOverview(monthTxs);
-  const fixedIncomePlanned = recurringEntries
-    .filter(item => item.active !== false && item.type === 'income')
-    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const fixedPlanned = recurringEntries
-    .filter(item => item.active !== false && item.type === 'expense' && item.category !== 'salvadanaio')
-    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const fixedIncomePlanned = recurringEntries.filter(i => i.active !== false && i.type === 'income').reduce((s, i) => s + Number(i.amount || 0), 0);
+  const fixedPlanned = recurringEntries.filter(i => i.active !== false && i.type === 'expense' && i.category !== 'salvadanaio').reduce((s, i) => s + Number(i.amount || 0), 0);
   const fixedPaid = overview.fixedExpenses;
   const manualExpense = overview.variableExpenses;
   const topCategory = topExpenseCategory(monthTxs);
@@ -653,54 +321,17 @@ function buildAssistantReply(question = '', state = {}) {
   } else {
     reasoning.push(`Entrate ${formatCurrency(income, settings)}, spese ${formatCurrency(expense, settings)}, saldo ${formatCurrency(balance, settings)}.`);
   }
-
-  if (income <= 0 && expense > 0) {
-    score -= 25;
-    reasoning.push('Ci sono spese senza entrate nel mese: il saldo non rappresenta ancora un budget completo.');
-    actions.push('Aggiungi le entrate ricorrenti prima di prendere decisioni sui tagli.');
-  } else if (expenseRate >= 0.9) {
-    score -= 24;
-    reasoning.push(`Le spese assorbono ${formatPercent(expenseRate)} delle entrate: margine di sicurezza molto basso.`);
-    actions.push('Imposta un tetto settimanale sulle spese manuali fino a riportare il rapporto sotto il 75%.');
-  } else if (expenseRate >= 0.75) {
-    score -= 10;
-    reasoning.push(`Le spese assorbono ${formatPercent(expenseRate)} delle entrate: gestione sostenibile ma fragile.`);
-    actions.push('Riduci prima le categorie variabili, non le spese essenziali.');
-  } else if (income > 0) {
-    score += 6;
-    reasoning.push(`Il rapporto spese/entrate e ${formatPercent(expenseRate)}: resta spazio per risparmio o fondo emergenza.`);
-  }
-
-  if (balance < 0) {
-    score -= 18;
-    reasoning.push('Il saldo mensile e negativo: le uscite superano le entrate registrate.');
-    actions.push('Blocca nuove spese non essenziali finche il saldo mensile torna positivo.');
-  }
-
-  if (fixedRate > 0.5) {
-    score -= 12;
-    reasoning.push(`Le spese fisse pianificate pesano ${formatPercent(fixedRate)} delle entrate: il budget e poco flessibile.`);
-    actions.push('Rinegozia o sostituisci almeno una spesa fissa ad alto importo.');
-  } else if (fixedPlanned > 0 && income > 0) {
-    reasoning.push(`Spese fisse pianificate: ${formatCurrency(fixedPlanned, settings)} (${formatPercent(fixedRate)} delle entrate).`);
-  }
-
-  if (fixedIncomePlanned > 0) {
-    reasoning.push(`Entrate fisse pianificate: ${formatCurrency(fixedIncomePlanned, settings)}. Liquidita libera stimata nel mese: ${formatCurrency(overview.liquidMoney, settings)}.`);
-  }
-
-  if (topCategory && expense > 0 && topCategory.total / expense > 0.35) {
-    reasoning.push(`La categoria piu pesante e ${topCategory.category}: ${formatCurrency(topCategory.total, settings)}.`);
-    actions.push(`Controlla le ultime voci in "${topCategory.category}" e cerca una riduzione mirata del 5-10%.`);
-  }
-
-  if (manualExpense > fixedPaid && manualExpense > 0) {
-    reasoning.push(`Spese manuali del mese: ${formatCurrency(manualExpense, settings)} contro ${formatCurrency(fixedPaid, settings)} gia generate da spese mensili.`);
-  }
-
-  if (String(question).toLowerCase().includes('dati')) {
-    actions.push('Per dati sensibili usa il backend locale e non inserire credenziali bancarie nell app.');
-  }
+  if (income <= 0 && expense > 0) { score -= 25; reasoning.push('Ci sono spese senza entrate nel mese: il saldo non rappresenta ancora un budget completo.'); actions.push('Aggiungi le entrate ricorrenti prima di prendere decisioni sui tagli.'); }
+  else if (expenseRate >= 0.9) { score -= 24; reasoning.push(`Le spese assorbono ${formatPercent(expenseRate)} delle entrate: margine di sicurezza molto basso.`); actions.push('Imposta un tetto settimanale sulle spese manuali fino a riportare il rapporto sotto il 75%.'); }
+  else if (expenseRate >= 0.75) { score -= 10; reasoning.push(`Le spese assorbono ${formatPercent(expenseRate)} delle entrate: gestione sostenibile ma fragile.`); actions.push('Riduci prima le categorie variabili, non le spese essenziali.'); }
+  else if (income > 0) { score += 6; reasoning.push(`Il rapporto spese/entrate e ${formatPercent(expenseRate)}: resta spazio per risparmio o fondo emergenza.`); }
+  if (balance < 0) { score -= 18; reasoning.push('Il saldo mensile e negativo: le uscite superano le entrate registrate.'); actions.push('Blocca nuove spese non essenziali finche il saldo mensile torna positivo.'); }
+  if (fixedRate > 0.5) { score -= 12; reasoning.push(`Le spese fisse pianificate pesano ${formatPercent(fixedRate)} delle entrate: il budget e poco flessibile.`); actions.push('Rinegozia o sostituisci almeno una spesa fissa ad alto importo.'); }
+  else if (fixedPlanned > 0 && income > 0) { reasoning.push(`Spese fisse pianificate: ${formatCurrency(fixedPlanned, settings)} (${formatPercent(fixedRate)} delle entrate).`); }
+  if (fixedIncomePlanned > 0) { reasoning.push(`Entrate fisse pianificate: ${formatCurrency(fixedIncomePlanned, settings)}. Liquidita libera stimata nel mese: ${formatCurrency(overview.liquidMoney, settings)}.`); }
+  if (topCategory && expense > 0 && topCategory.total / expense > 0.35) { reasoning.push(`La categoria piu pesante e ${topCategory.category}: ${formatCurrency(topCategory.total, settings)}.`); actions.push(`Controlla le ultime voci in "${topCategory.category}" e cerca una riduzione mirata del 5-10%.`); }
+  if (manualExpense > fixedPaid && manualExpense > 0) { reasoning.push(`Spese manuali del mese: ${formatCurrency(manualExpense, settings)} contro ${formatCurrency(fixedPaid, settings)} gia generate da spese mensili.`); }
+  if (String(question).toLowerCase().includes('dati')) { actions.push('Per dati sensibili usa il backend locale e non inserire credenziali bancarie nell app.'); }
 
   const boundedScore = Math.max(0, Math.min(100, Math.round(score)));
   const level = boundedScore >= 75 ? 'buona' : boundedScore >= 55 ? 'da monitorare' : 'critica';
@@ -716,177 +347,410 @@ function buildAssistantReply(question = '', state = {}) {
   ].join('\n');
 }
 
-async function handleApi(req, res, url) {
-  const session = getSession(req, res);
+// ── Helper: generateId ──────────────────────────────────────────────────────────
 
+function generateId() {
+  return crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+}
+
+// ── API handler ─────────────────────────────────────────────────────────────────
+
+async function handleApi(req, res, url) {
+  // Handle preflight for all API routes
   if (req.method === 'OPTIONS') {
     res.writeHead(204, baseHeaders({ Allow: 'GET,POST,PUT,DELETE,OPTIONS' }));
     res.end();
     return;
   }
-  
+
   const pathClean = url.pathname.replace(/\/$/, '');
   console.log(`[API] ${req.method} ${pathClean}`);
 
+  // ── Health ────────────────────────────────────────────────────────────────────
   if (pathClean === '/api/health' && req.method === 'GET') {
     sendJson(res, 200, { ok: true, service: 'finanza-personale-backend' });
     return;
   }
 
+  // ── Session (no CSRF check, only GET) ────────────────────────────────────────
   if (pathClean === '/api/session' && req.method === 'GET') {
-    sendJson(res, 200, { ok: true, csrfToken: session.csrfToken });
+    const session = getOrCreateSession(req, res);
+    // Rotate CSRF token on every GET /api/session
+    const csrfToken = db.rotateCsrfToken(session.id);
+    sendJson(res, 200, {
+      ok: true,
+      csrfToken,
+      accountId: session.account_id || null,
+      profileId: session.profile_id || null,
+    });
     return;
   }
 
+  // ── Auth: register ────────────────────────────────────────────────────────────
+  if (pathClean === '/api/auth/register' && req.method === 'POST') {
+    const session = getOrCreateSession(req, res);
+    if (!assertCsrf(req, session)) {
+      sendJson(res, 403, { error: 'Token CSRF non valido' });
+      return;
+    }
+    const body = await readBody(req);
+    const email = normalizeEmail(body.email || '');
+    const password = String(body.password || '');
+    const profileUsername = String(body.profileUsername || '').trim();
+    const profilePassword = String(body.profilePassword || '');
+    const currency = ALLOWED_CURRENCIES.has(body.currency) ? body.currency : 'EUR';
+    const locale = ALLOWED_LOCALES.has(body.locale) ? body.locale : 'it-IT';
+
+    if (!email || !email.includes('@') || email.length < 5) {
+      sendJson(res, 400, { error: 'Email non valida.' });
+      return;
+    }
+    if (password.length < 8) {
+      sendJson(res, 400, { error: 'La password deve avere almeno 8 caratteri.' });
+      return;
+    }
+    if (profileUsername.length < 2) {
+      sendJson(res, 400, { error: 'Il nome profilo deve avere almeno 2 caratteri.' });
+      return;
+    }
+    if (profilePassword.length < 8) {
+      sendJson(res, 400, { error: 'La password del profilo deve avere almeno 8 caratteri.' });
+      return;
+    }
+
+    // Check duplicate email
+    if (db.getAccountByEmail(email)) {
+      sendJson(res, 409, { error: 'Un account con questa email esiste già.' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const accountId = generateId();
+    const profileId = generateId();
+
+    const account = db.createAccount({ id: accountId, email, password, createdAt: now });
+    const profile = db.createProfile({
+      id: profileId,
+      accountId,
+      username: profileUsername,
+      password: profilePassword,
+      currency,
+      locale,
+      storageKey: `finanza:profile:${accountId}:${profileId}`,
+      isDefault: true,
+      createdAt: now,
+    });
+
+    // Bind session
+    db.updateSession(session.id, { account_id: accountId, profile_id: profileId });
+    const csrfToken = db.rotateCsrfToken(session.id);
+
+    sendJson(res, 201, {
+      account: { id: account.id, email: account.email, createdAt: account.createdAt },
+      profile: { id: profile.id, username: profile.username, currency: profile.currency, locale: profile.locale, storageKey: profile.storageKey },
+      csrfToken,
+    });
+    return;
+  }
+
+  // ── Auth: login ───────────────────────────────────────────────────────────────
+  if (pathClean === '/api/auth/login' && req.method === 'POST') {
+    const session = getOrCreateSession(req, res);
+    if (!assertCsrf(req, session)) {
+      sendJson(res, 403, { error: 'Token CSRF non valido' });
+      return;
+    }
+    const body = await readBody(req);
+    const email = normalizeEmail(body.email || '');
+    const password = String(body.password || '');
+
+    const account = db.getAccountByEmail(email);
+    if (!account || !db.verifyPassword(password, account)) {
+      sendJson(res, 401, { error: 'Credenziali non valide.' });
+      return;
+    }
+
+    // Update last_login_at
+    db.updateAccount(account.id, { lastLoginAt: new Date().toISOString() });
+
+    // Bind account (not profile yet)
+    db.updateSession(session.id, { account_id: account.id, profile_id: null });
+    const csrfToken = db.rotateCsrfToken(session.id);
+
+    const profiles = db.getProfilesByAccount(account.id).map(p => ({
+      id: p.id,
+      username: p.username,
+      currency: p.currency,
+      locale: p.locale,
+      isDefault: p.isDefault,
+    }));
+
+    sendJson(res, 200, {
+      account: { id: account.id, email: account.email },
+      profiles,
+      csrfToken,
+    });
+    return;
+  }
+
+  // ── Auth: select profile ──────────────────────────────────────────────────────
+  if (pathClean === '/api/auth/profile/select' && req.method === 'POST') {
+    const session = getOrCreateSession(req, res);
+    if (!session.account_id) {
+      sendJson(res, 401, { error: 'Autenticazione richiesta.' });
+      return;
+    }
+    if (!assertCsrf(req, session)) {
+      sendJson(res, 403, { error: 'Token CSRF non valido' });
+      return;
+    }
+    const body = await readBody(req);
+    const profileId = String(body.profileId || '').trim();
+    const password = String(body.password || '');
+
+    const profile = db.getProfile(profileId);
+    if (!profile) {
+      sendJson(res, 404, { error: 'Profilo non trovato.' });
+      return;
+    }
+    if (profile.accountId !== session.account_id) {
+      sendJson(res, 403, { error: 'Accesso negato.' });
+      return;
+    }
+    if (!db.verifyPassword(password, profile)) {
+      sendJson(res, 401, { error: 'Password profilo non corretta.' });
+      return;
+    }
+
+    db.updateSession(session.id, { profile_id: profileId });
+    const csrfToken = db.rotateCsrfToken(session.id);
+
+    sendJson(res, 200, {
+      profile: { id: profile.id, username: profile.username, currency: profile.currency, locale: profile.locale, storageKey: profile.storageKey },
+      csrfToken,
+    });
+    return;
+  }
+
+  // ── Auth: create profile ──────────────────────────────────────────────────────
+  if (pathClean === '/api/auth/profile/create' && req.method === 'POST') {
+    const session = getOrCreateSession(req, res);
+    if (!session.account_id) {
+      sendJson(res, 401, { error: 'Autenticazione richiesta.' });
+      return;
+    }
+    if (!assertCsrf(req, session)) {
+      sendJson(res, 403, { error: 'Token CSRF non valido' });
+      return;
+    }
+    const body = await readBody(req);
+    const username = String(body.username || '').trim();
+    const password = String(body.password || '');
+    const currency = ALLOWED_CURRENCIES.has(body.currency) ? body.currency : 'EUR';
+    const locale = ALLOWED_LOCALES.has(body.locale) ? body.locale : 'it-IT';
+
+    if (username.length < 2) {
+      sendJson(res, 400, { error: 'Il nome profilo deve avere almeno 2 caratteri.' });
+      return;
+    }
+    if (password.length < 8) {
+      sendJson(res, 400, { error: 'La password deve avere almeno 8 caratteri.' });
+      return;
+    }
+
+    const profileId = generateId();
+    const accountId = session.account_id;
+
+    let profile;
+    try {
+      profile = db.createProfile({
+        id: profileId,
+        accountId,
+        username,
+        password,
+        currency,
+        locale,
+        storageKey: `finanza:profile:${accountId}:${profileId}`,
+        isDefault: false,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      if (e.message && e.message.includes('UNIQUE')) {
+        sendJson(res, 409, { error: 'Un profilo con questo nome esiste già.' });
+        return;
+      }
+      throw e;
+    }
+
+    sendJson(res, 201, {
+      profile: { id: profile.id, username: profile.username, currency: profile.currency, locale: profile.locale, storageKey: profile.storageKey },
+    });
+    return;
+  }
+
+  // ── Auth: delete profile ──────────────────────────────────────────────────────
+  if (pathClean.startsWith('/api/auth/profile/') && req.method === 'DELETE') {
+    const session = getOrCreateSession(req, res);
+    if (!session.account_id) {
+      sendJson(res, 401, { error: 'Autenticazione richiesta.' });
+      return;
+    }
+    if (!assertCsrf(req, session)) {
+      sendJson(res, 403, { error: 'Token CSRF non valido' });
+      return;
+    }
+    const profileId = pathClean.replace('/api/auth/profile/', '');
+    const profile = db.getProfile(profileId);
+    if (!profile || profile.accountId !== session.account_id) {
+      sendJson(res, 403, { error: 'Accesso negato.' });
+      return;
+    }
+    const allProfiles = db.getProfilesByAccount(session.account_id);
+    if (allProfiles.length <= 1) {
+      sendJson(res, 400, { error: 'Non puoi eliminare l\'unico profilo dell\'account.' });
+      return;
+    }
+    db.deleteProfile(profileId);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Auth: me ──────────────────────────────────────────────────────────────────
+  if (pathClean === '/api/auth/me' && req.method === 'GET') {
+    const session = getOrCreateSession(req, res);
+    if (!session.account_id) {
+      sendJson(res, 401, { error: 'Non autenticato.' });
+      return;
+    }
+    const account = db.getAccount(session.account_id);
+    if (!account) {
+      // Session references a deleted account — clean up
+      db.updateSession(session.id, { account_id: null, profile_id: null });
+      sendJson(res, 401, { error: 'Non autenticato.' });
+      return;
+    }
+    const profiles = db.getProfilesByAccount(account.id).map(p => ({
+      id: p.id,
+      username: p.username,
+      currency: p.currency,
+      locale: p.locale,
+      isDefault: p.isDefault,
+    }));
+    const activeProfile = session.profile_id ? db.getProfile(session.profile_id) : null;
+    sendJson(res, 200, {
+      account: { id: account.id, email: account.email },
+      profile: activeProfile ? {
+        id: activeProfile.id,
+        username: activeProfile.username,
+        currency: activeProfile.currency,
+        locale: activeProfile.locale,
+        storageKey: activeProfile.storageKey,
+      } : null,
+      profiles,
+    });
+    return;
+  }
+
+  // ── Auth: logout ──────────────────────────────────────────────────────────────
+  if (pathClean === '/api/auth/logout' && req.method === 'POST') {
+    const cookies = parseCookies(req.headers.cookie || '');
+    const raw = cookies[SESSION_COOKIE];
+    const verifiedId = verifySessionCookie(raw);
+    if (verifiedId) {
+      db.deleteSession(verifiedId);
+    }
+    res.setHeader('Set-Cookie', clearCookieHeader());
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Legacy profile endpoint (settings style) ──────────────────────────────────
   if (pathClean === '/api/profile' && req.method === 'GET') {
-    const users = await readUsers();
-    sendJson(res, 200, sanitizeProfile(users[session.userId] || {}));
+    const session = getOrCreateSession(req, res);
+    let profileData = {};
+    if (session.profile_id) {
+      const p = db.getProfile(session.profile_id);
+      if (p) profileData = { userName: p.username, currency: p.currency, locale: p.locale };
+    }
+    sendJson(res, 200, sanitizeProfile(profileData));
     return;
   }
 
   if (pathClean === '/api/profile' && req.method === 'PUT') {
+    const session = getOrCreateSession(req, res);
     if (!assertCsrf(req, session)) {
       sendJson(res, 403, { error: 'Token CSRF non valido' });
       return;
     }
-
     const body = await readBody(req);
-    const users = await readUsers();
-    users[session.userId] = sanitizeProfile(body);
-    await writeUsers(users);
-    sendJson(res, 200, users[session.userId]);
+    const clean = sanitizeProfile(body);
+    // Best-effort: if profile_id in session, update currency/locale
+    if (session.profile_id) {
+      db.updateProfile(session.profile_id, { currency: clean.currency, locale: clean.locale });
+    }
+    sendJson(res, 200, clean);
     return;
   }
 
-  if (pathClean === '/api/sync/accounts' && req.method === 'GET') {
-    const accounts = await readSyncAccounts();
-    sendJson(res, 200, { schemaVersion: 1, accounts });
-    return;
-  }
-
-  if (pathClean === '/api/sync/accounts' && req.method === 'PUT') {
-    if (!assertCsrf(req, session)) {
-      sendJson(res, 403, { error: 'Token CSRF non valido' });
-      return;
-    }
-
-    const body = await readBody(req);
-    const existing = await readSyncAccounts();
-    const incoming = Array.isArray(body.accounts) ? body.accounts : [];
-    const accounts = mergeSyncAccounts(existing, incoming).slice(0, 50);
-    await writeSyncAccounts(accounts);
-    sendJson(res, 200, { schemaVersion: 1, accounts });
-    return;
-  }
-
-  if (pathClean === '/api/sync/account' && req.method === 'DELETE') {
-    if (!assertCsrf(req, session)) {
-      sendJson(res, 403, { error: 'Token CSRF non valido' });
-      return;
-    }
-
-    const accountId = url.searchParams.get('id');
-    const existing = await readSyncAccounts();
-    const updated = existing.filter(a => a.id !== accountId);
-    await writeSyncAccounts(updated);
-    
-    try {
-      await fs.unlink(stateFileForAccount(accountId));
-    } catch(e) {}
-    
-    sendJson(res, 200, { success: true });
-    return;
-  }
-
-  if (pathClean === '/api/sync/login' && req.method === 'POST') {
-    if (!assertCsrf(req, session)) {
-      sendJson(res, 403, { error: 'Token CSRF non valido' });
-      return;
-    }
-
-    const body = await readBody(req);
-    const lookup = normalizedLookup(body.identifier);
-    const accounts = await readSyncAccounts();
-    const account = accounts.find(item => item.id === body.identifier || item.normalizedName === lookup);
-
-    if (!account || !verifyPasswordRecord(body.password, account.password)) {
-      sendJson(res, 401, { error: 'Password non corretta.' });
-      return;
-    }
-
-    account.lastLoginAt = new Date().toISOString();
-    if (!account.authToken) {
-      account.authToken = crypto.randomBytes(32).toString('hex');
-    }
-    await writeSyncAccounts(accounts);
-    authorizeAccount(session, account.id);
-    sendJson(res, 200, { account });
-    return;
-  }
-
-  if (pathClean === '/api/sync/authorize' && req.method === 'POST') {
-    if (!assertCsrf(req, session)) {
-      sendJson(res, 403, { error: 'Token CSRF non valido' });
-      return;
-    }
-
-    const body = await readBody(req);
-    const accounts = await readSyncAccounts();
-    const account = accounts.find(item => item.id === body.accountId);
-
-    if (!account || !account.authToken || account.authToken !== body.authToken) {
-      sendJson(res, 401, { error: 'Token di autorizzazione non valido.' });
-      return;
-    }
-
-    authorizeAccount(session, account.id);
-    sendJson(res, 200, { success: true });
-    return;
-  }
-
+  // ── Sync state ────────────────────────────────────────────────────────────────
   if (pathClean === '/api/sync/state' && req.method === 'GET') {
-    const accountId = url.searchParams.get('accountId');
-    const profileId = url.searchParams.get('profileId'); // Opzionale per nuovo formato
-    if (!canAccessAccount(session, accountId)) {
-      sendJson(res, 403, { error: 'Accedi all account prima di sincronizzare i dati.' });
+    const session = getOrCreateSession(req, res);
+    if (!session.account_id) {
+      sendJson(res, 403, { error: 'Accedi all\'account prima di sincronizzare i dati.' });
       return;
     }
-    const state = await readSyncState(accountId, profileId);
-    sendJson(res, 200, state);
+    const profileId = url.searchParams.get('profileId') || session.profile_id;
+    if (!profileId) {
+      sendJson(res, 400, { error: 'profileId richiesto.' });
+      return;
+    }
+    const row = db.getSyncState(session.account_id, profileId);
+    sendJson(res, 200, row ? { exists: true, state: row.state } : { exists: false, state: null });
     return;
   }
 
   if (pathClean === '/api/sync/state' && req.method === 'PUT') {
+    const session = getOrCreateSession(req, res);
+    if (!session.account_id) {
+      sendJson(res, 403, { error: 'Accedi all\'account prima di sincronizzare i dati.' });
+      return;
+    }
     if (!assertCsrf(req, session)) {
       sendJson(res, 403, { error: 'Token CSRF non valido' });
       return;
     }
-
     const body = await readBody(req, MAX_SYNC_STATE_BYTES);
-    if (!canAccessAccount(session, body.accountId)) {
-      sendJson(res, 403, { error: 'Accedi all account prima di sincronizzare i dati.' });
+    const profileId = body.profileId || session.profile_id;
+    if (!profileId) {
+      sendJson(res, 400, { error: 'profileId richiesto.' });
       return;
     }
-    const state = await writeSyncState(body.accountId, body.state, body.profileId);
-    sendJson(res, 200, { exists: true, state });
+    const cleanState = sanitizeSyncState(body.state);
+    db.upsertSyncState(session.account_id, profileId, cleanState);
+    // Mark profile syncedAt
+    if (session.profile_id) {
+      db.updateProfile(session.profile_id, { syncedAt: new Date().toISOString() });
+    }
+    sendJson(res, 200, { exists: true, state: cleanState });
     return;
   }
 
+  // ── Assistant ─────────────────────────────────────────────────────────────────
   if (pathClean === '/api/assistant/analyze' && req.method === 'POST') {
+    const session = getOrCreateSession(req, res);
     if (!assertCsrf(req, session)) {
       sendJson(res, 403, { error: 'Token CSRF non valido' });
       return;
     }
-
     const body = await readBody(req);
-    sendJson(res, 200, {
-      reply: buildAssistantReply(body.question, body.state),
-    });
+    sendJson(res, 200, { reply: buildAssistantReply(body.question, body.state) });
     return;
   }
 
   sendJson(res, 404, { error: 'Endpoint non trovato' });
 }
+
+// ── Static file serving ─────────────────────────────────────────────────────────
 
 async function serveStatic(req, res, url) {
   const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
@@ -912,6 +776,8 @@ async function serveStatic(req, res, url) {
   }
 }
 
+// ── HTTP server ─────────────────────────────────────────────────────────────────
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -926,15 +792,21 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  // Load persisted sessions
-  readSessions().then(persistedSessions => {
-    for (const [id, session] of Object.entries(persistedSessions)) {
-      sessions.set(id, session);
+  // Ensure data dir exists
+  require('node:fs').mkdirSync(DATA_DIR, { recursive: true });
+
+  // Initialize SQLite DB
+  db.initDb(DB_PATH);
+
+  // Schedule periodic cleanup of expired sessions (every hour)
+  setInterval(() => {
+    try {
+      const removed = db.cleanExpiredSessions();
+      if (removed > 0) console.log(`[DB] Cleaned ${removed} expired sessions`);
+    } catch (e) {
+      console.error('[DB] Cleanup error:', e);
     }
-    console.log(`Loaded ${sessions.size} persisted sessions`);
-  }).catch(error => {
-    console.error('Error loading sessions:', error);
-  });
+  }, 60 * 60 * 1000);
 
   server.listen(PORT, HOST, () => {
     const displayHost = HOST === '0.0.0.0' ? '<IP-locale>' : HOST;

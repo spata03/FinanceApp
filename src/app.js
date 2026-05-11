@@ -20,10 +20,8 @@ import { renderAccountsPage } from './pages/accounts.js';
 import { renderProfilesPage } from './pages/profiles.js';
 import { formatMonthYear }    from './utils/formatters.js';
 import { store }              from './data/store.js';
-import { getActiveAccount, syncAccountsWithBackend } from './data/auth.js';
-import { getActiveProfile, getActiveAccount as getActiveAccountV2 } from './data/auth-accounts.js';
+import { getActiveAccount, getActiveProfile, checkAndRestoreSession } from './data/auth-accounts.js';
 import { ensureAuthenticated, setupUserMenu } from './components/UserMenu.js';
-import { authorizeSyncedAccount } from './utils/backendClient.js';
 
 // ── Mappa rotte ───────────────────────────────────────────────────────────────
 const ROUTES = {
@@ -138,7 +136,7 @@ function handleHashChange() {
   
   // Check autenticazione profilo
   const profile = getActiveProfile();
-  const account = getActiveAccountV2();
+  const account = getActiveAccount();
   
   // Pagine pubbliche (non richiedono profilo)
   const publicPages = ['accounts', 'profiles'];
@@ -166,11 +164,11 @@ function updateCurrentMonth() {
 }
 
 function syncActiveAccountName() {
-  const account = getActiveAccount();
-  if (!account) return;
+  const profile = getActiveProfile();
+  if (!profile) return;
   const settings = store.getSettings();
   if (!settings.userName) {
-    store.updateSettings({ userName: account.displayName });
+    store.updateSettings({ userName: profile.username });
   }
 }
 
@@ -226,21 +224,24 @@ function setupMobileSidebar() {
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 async function init() {
-  await syncAccountsWithBackend().catch(error => {
-    console.warn('[Auth] Sincronizzazione iniziale account non riuscita:', error);
+  // Try to restore session from persistent cookie (handles cold start)
+  await checkAndRestoreSession().catch(error => {
+    console.warn('[Auth] Ripristino sessione non riuscito:', error);
   });
+
+  // Registra router INCONDIZIONATAMENTE prima di qualsiasi guard
+  window.addEventListener('hashchange', handleHashChange);
+
   setupUserMenu();
-  if (!ensureAuthenticated()) return;
-  
-  const active = getActiveAccount();
-  if (active?.authToken) {
-    await authorizeSyncedAccount(active.id, active.authToken).catch(() => null);
+  if (!ensureAuthenticated()) {
+    handleHashChange(); // renderizza #/accounts o #/profiles per utente non autenticato
+    return;
   }
 
   await store.syncWithBackend().catch(error => {
     console.warn('[Store] Sincronizzazione iniziale dati non riuscita:', error);
   });
-  
+
   const syncTimeEl = document.getElementById('sync-time');
   if (syncTimeEl) {
     syncTimeEl.textContent = 'Ultimo: ' + new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -249,10 +250,10 @@ async function init() {
   // ── Sincronizzazione automatica periodica ──
   let lastAutoSync = Date.now();
   let autoSyncInProgress = false;
-  const AUTO_SYNC_INTERVAL = 60000; // 60 secondi (ridotto per evitare conflitti CSRF)
+  const AUTO_SYNC_INTERVAL = 60000; // 60 secondi
 
   async function autoSync() {
-    if (autoSyncInProgress || !getActiveAccount()?.authToken) return;
+    if (autoSyncInProgress || !getActiveProfile()) return;
     autoSyncInProgress = true;
     try {
       const result = await store.syncWithBackend();
@@ -267,10 +268,7 @@ async function init() {
       }
     } catch (error) {
       console.debug('[AutoSync] Error:', error.message);
-      // Se è un errore CSRF, invalida la sessione per il prossimo tentativo
       if (error.message?.includes('Token CSRF') || error.status === 403) {
-        console.debug('[AutoSync] Invalidating session due to CSRF error');
-        // Importa e chiama invalidateSession
         import('./utils/backendClient.js').then(({ invalidateSession }) => invalidateSession());
       }
     } finally {
@@ -285,10 +283,10 @@ async function init() {
   store.subscribe(async () => {
     clearTimeout(syncDebounceTimer);
     syncDebounceTimer = setTimeout(() => {
-      if (Date.now() - lastAutoSync > 5000 && getActiveAccount()?.authToken) {
+      if (Date.now() - lastAutoSync > 5000 && getActiveProfile()) {
         autoSync();
       }
-    }, 2000); // Attendi 2 secondi dopo l'ultima modifica prima di sincronizzare
+    }, 2000);
   });
 
   syncActiveAccountName();
@@ -296,7 +294,6 @@ async function init() {
   bindSidebar();
   setupMobileSidebar();
   registerServiceWorker();
-  window.addEventListener('hashchange', handleHashChange);
   handleHashChange();
 }
 

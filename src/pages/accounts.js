@@ -1,236 +1,213 @@
 /**
- * pages/accounts.js - Pagina di selezione/login degli account
+ * pages/accounts.js - Account registration / login page
+ *
+ * Flow:
+ *   1. No account in localStorage → show registration form
+ *   2. Account in localStorage but no active session → show login form
+ *   3. After register: navigate to #/profiles (profile selection)
+ *   4. After login:   navigate to #/profiles (profile selection)
  */
 
 import {
   registerAccount,
   loginAccount,
-  listAccountsSummary,
-  setActiveAccountId,
-  setActiveProfileId,
+  getActiveAccount,
+  checkAndRestoreSession,
 } from '../data/auth-accounts.js';
 
-export async function renderAccountsPage() {
-  const container = document.getElementById('app');
-  const accounts = listAccountsSummary();
+export async function renderAccountsPage(container) {
+  const el = container || document.getElementById('app');
 
-  const html = `
-    <div class="page page-accounts">
-      <header class="accounts-header">
-        <h1>I Tuoi Account</h1>
-      </header>
-
-      <main class="accounts-main">
-        ${accounts.length === 0 ? renderNoAccounts() : renderAccountsList(accounts)}
-      </main>
-
-      <footer class="accounts-footer">
-        ${accounts.length > 0 ? '<button id="accounts-new-account" class="button button-secondary">+ Nuovo Account</button>' : ''}
-        <button id="accounts-offline-mode" class="button button-outline">Modalità Offline</button>
-      </footer>
-    </div>
-
-    <div id="login-modal" class="modal" style="display: none;">
-      <div class="modal-content">
-        <h2>Login Account</h2>
-        <div class="form-group">
-          <label>Email:</label>
-          <input type="email" id="login-email" placeholder="mail@example.com" />
-        </div>
-        <div class="form-group">
-          <label>Password:</label>
-          <input type="password" id="login-password" />
-        </div>
-        <div class="form-actions">
-          <button id="login-submit" class="button">Login</button>
-          <button id="login-cancel" class="button button-outline">Annulla</button>
-        </div>
-        <div id="login-error" class="error-message" style="display: none;"></div>
-      </div>
-    </div>
-
-    <div id="register-modal" class="modal" style="display: none;">
-      <div class="modal-content">
-        <h2>Nuovo Account</h2>
-        <div class="form-group">
-          <label>Email:</label>
-          <input type="email" id="register-email" placeholder="mail@example.com" />
-        </div>
-        <div class="form-group">
-          <label>Password Account:</label>
-          <input type="password" id="register-password" placeholder="min 8 caratteri" />
-        </div>
-        <div class="form-group">
-          <label>Nome Profilo (primo profilo):</label>
-          <input type="text" id="register-username" placeholder="es. Marco" />
-        </div>
-        <div class="form-group">
-          <label>Password Profilo:</label>
-          <input type="password" id="register-profile-password" placeholder="min 8 caratteri" />
-        </div>
-        <div class="form-group">
-          <label>Valuta:</label>
-          <select id="register-currency">
-            <option value="EUR">EUR (€)</option>
-            <option value="USD">USD ($)</option>
-            <option value="GBP">GBP (£)</option>
-            <option value="CHF">CHF (₣)</option>
-          </select>
-        </div>
-        <div class="form-actions">
-          <button id="register-submit" class="button">Crea Account</button>
-          <button id="register-cancel" class="button button-outline">Annulla</button>
-        </div>
-        <div id="register-error" class="error-message" style="display: none;"></div>
-      </div>
-    </div>
-  `;
-
-  container.innerHTML = html;
-
-  // Attach event listeners
-  setupAccountsPageEvents();
-}
-
-function renderNoAccounts() {
-  return `
-    <div class="empty-state">
-      <p>Non hai ancora account. Creane uno per iniziare.</p>
-    </div>
-  `;
-}
-
-function renderAccountsList(accounts) {
-  return `
-    <div class="accounts-list">
-      ${accounts.map(account => `
-        <div class="account-card" data-account-id="${account.id}">
-          <div class="account-info">
-            <strong>${account.email}</strong>
-            <small>${account.profileCount} profilo${account.profileCount !== 1 ? 'i' : ''}</small>
-            <small>${account.lastLoginAt ? new Date(account.lastLoginAt).toLocaleString('it-IT') : 'Mai'}</small>
-          </div>
-          <div class="account-actions">
-            <button class="account-select-button button" data-account-id="${account.id}">Accedi</button>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
-
-function setupAccountsPageEvents() {
-  // Select account
-  document.addEventListener('click', (e) => {
-    const selectButton = e.target.closest('.account-select-button');
-    if (selectButton) {
-      const accountId = selectButton.dataset.accountId;
-      showLoginModal(accountId);
-      return;
-    }
-
-    const newAccountButton = e.target.closest('#accounts-new-account');
-    if (newAccountButton) {
-      showRegisterModal();
-      return;
-    }
-
-    const offlineModeButton = e.target.closest('#accounts-offline-mode');
-    if (offlineModeButton) {
-      handleOfflineMode();
-      return;
-    }
-  });
-
-  // Login modal
-  const loginModal = document.getElementById('login-modal');
-  const loginSubmit = document.getElementById('login-submit');
-  const loginCancel = document.getElementById('login-cancel');
-
-  if (loginSubmit) {
-    loginSubmit.addEventListener('click', handleLoginSubmit);
-  }
-  if (loginCancel) {
-    loginCancel.addEventListener('click', () => {
-      loginModal.style.display = 'none';
-    });
-  }
-
-  // Register modal
-  const registerModal = document.getElementById('register-modal');
-  const registerSubmit = document.getElementById('register-submit');
-  const registerCancel = document.getElementById('register-cancel');
-
-  if (registerSubmit) {
-    registerSubmit.addEventListener('click', handleRegisterSubmit);
-  }
-  if (registerCancel) {
-    registerCancel.addEventListener('click', () => {
-      registerModal.style.display = 'none';
-    });
-  }
-}
-
-function showLoginModal(accountId) {
-  const modal = document.getElementById('login-modal');
-  modal.dataset.accountId = accountId;
-  modal.style.display = 'flex';
-  document.getElementById('login-email').focus();
-}
-
-function showRegisterModal() {
-  const modal = document.getElementById('register-modal');
-  modal.style.display = 'flex';
-  document.getElementById('register-email').focus();
-}
-
-async function handleLoginSubmit() {
-  const modal = document.getElementById('login-modal');
-  const accountId = modal.dataset.accountId;
-  const email = document.getElementById('login-email').value.trim();
-  const password = document.getElementById('login-password').value;
-  const errorDiv = document.getElementById('login-error');
-
-  try {
-    errorDiv.style.display = 'none';
-    const result = await loginAccount({ email, password });
-    setActiveAccountId(accountId);
-    
-    // Vai alla selezione profili
-    window.location.hash = '#/profiles';
-  } catch (error) {
-    errorDiv.textContent = error.message;
-    errorDiv.style.display = 'block';
-  }
-}
-
-async function handleRegisterSubmit() {
-  const email = document.getElementById('register-email').value.trim();
-  const password = document.getElementById('register-password').value;
-  const profileUsername = document.getElementById('register-username').value.trim();
-  const profilePassword = document.getElementById('register-profile-password').value;
-  const currency = document.getElementById('register-currency').value;
-  const errorDiv = document.getElementById('register-error');
-
-  try {
-    errorDiv.style.display = 'none';
-    const result = await registerAccount({
-      email,
-      password,
-      profileUsername,
-      profilePassword,
-      currency,
-    });
-    
-    // Vai alla dashboard del profilo
+  // Try to restore session first (cookie-based)
+  const restored = await checkAndRestoreSession().catch(() => ({ restored: false }));
+  if (restored.restored && restored.profile) {
     window.location.hash = '#/dashboard';
-  } catch (error) {
-    errorDiv.textContent = error.message;
-    errorDiv.style.display = 'block';
+    return;
   }
+  if (restored.restored && restored.account) {
+    window.location.hash = '#/profiles';
+    return;
+  }
+
+  const cachedAccount = getActiveAccount();
+  const showLogin = Boolean(cachedAccount);
+
+  el.innerHTML = showLogin ? renderLoginForm(cachedAccount) : renderRegisterForm();
+  setupAccountsPageEvents(el, showLogin);
 }
 
-function handleOfflineMode() {
-  // TODO: Implementare modalità offline
-  alert('Modalità offline non ancora disponibile.');
+// ── Render helpers ─────────────────────────────────────────────────────────────
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderRegisterForm() {
+  return `
+    <div class="page page-accounts page-accounts--centered">
+      <div class="auth-card" id="account-form-card">
+        <div class="auth-card__icon" aria-hidden="true">👤</div>
+        <h1>Crea il tuo account</h1>
+        <p>Registrazione gratuita. I tuoi dati restano privati.</p>
+
+        <form id="account-register-form" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="reg-email">Email</label>
+            <input class="form-input" id="reg-email" name="email" type="email" autocomplete="email" required placeholder="mail@esempio.it" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-password">Password account</label>
+            <input class="form-input" id="reg-password" name="password" type="password" autocomplete="new-password" minlength="8" required placeholder="min 8 caratteri" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-username">Nome primo profilo</label>
+            <input class="form-input" id="reg-username" name="profileUsername" type="text" autocomplete="username" required placeholder="es. Marco" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-profile-password">Password profilo</label>
+            <input class="form-input" id="reg-profile-password" name="profilePassword" type="password" autocomplete="new-password" minlength="8" required placeholder="min 8 caratteri" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-currency">Valuta</label>
+            <select class="form-select" id="reg-currency" name="currency">
+              <option value="EUR">EUR (€)</option>
+              <option value="USD">USD ($)</option>
+              <option value="GBP">GBP (£)</option>
+              <option value="CHF">CHF (₣)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reg-locale">Lingua</label>
+            <select class="form-select" id="reg-locale" name="locale">
+              <option value="it-IT">Italiano</option>
+              <option value="en-US">English</option>
+              <option value="de-DE">Deutsch</option>
+              <option value="fr-FR">Français</option>
+            </select>
+          </div>
+
+          <p class="auth-error" id="account-error" role="alert" style="display:none;"></p>
+          <button class="btn btn--primary" type="submit" id="account-submit-btn">Crea account</button>
+        </form>
+
+        <p style="margin-top: var(--sp-3); text-align: center; font-size: 0.875rem;">
+          Hai già un account? <button class="btn btn--ghost btn--inline" id="switch-to-login-btn" type="button">Accedi</button>
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+function renderLoginForm(cachedAccount) {
+  return `
+    <div class="page page-accounts page-accounts--centered">
+      <div class="auth-card" id="account-form-card">
+        <div class="auth-card__icon" aria-hidden="true">👤</div>
+        <h1>Bentornato</h1>
+        ${cachedAccount ? `<p>Account: <strong>${escapeHtml(cachedAccount.email)}</strong></p>` : ''}
+
+        <form id="account-login-form" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="login-email">Email</label>
+            <input class="form-input" id="login-email" name="email" type="email" autocomplete="email" required
+              value="${escapeHtml(cachedAccount ? cachedAccount.email : '')}" placeholder="mail@esempio.it" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="login-password">Password</label>
+            <input class="form-input" id="login-password" name="password" type="password" autocomplete="current-password" minlength="8" required placeholder="password account" />
+          </div>
+
+          <p class="auth-error" id="account-error" role="alert" style="display:none;"></p>
+          <button class="btn btn--primary" type="submit" id="account-submit-btn">Accedi</button>
+        </form>
+
+        <p style="margin-top: var(--sp-3); text-align: center; font-size: 0.875rem;">
+          Nuovo utente? <button class="btn btn--ghost btn--inline" id="switch-to-register-btn" type="button">Crea account</button>
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+// ── Event setup ────────────────────────────────────────────────────────────────
+
+function showError(el, message) {
+  const errorEl = el.querySelector('#account-error');
+  if (!errorEl) return;
+  errorEl.textContent = message || '';
+  errorEl.style.display = message ? 'block' : 'none';
+}
+
+function setLoading(el, loading) {
+  const btn = el.querySelector('#account-submit-btn');
+  if (btn) btn.disabled = loading;
+}
+
+function setupAccountsPageEvents(el, isLoginMode) {
+  // Switch between register and login forms
+  const switchToLogin = el.querySelector('#switch-to-login-btn');
+  if (switchToLogin) {
+    switchToLogin.addEventListener('click', () => {
+      el.innerHTML = renderLoginForm(getActiveAccount());
+      setupAccountsPageEvents(el, true);
+    });
+  }
+  const switchToRegister = el.querySelector('#switch-to-register-btn');
+  if (switchToRegister) {
+    switchToRegister.addEventListener('click', () => {
+      el.innerHTML = renderRegisterForm();
+      setupAccountsPageEvents(el, false);
+    });
+  }
+
+  if (isLoginMode) {
+    const form = el.querySelector('#account-login-form');
+    if (form) {
+      requestAnimationFrame(() => {
+        const pwdInput = form.querySelector('#login-password');
+        if (pwdInput) pwdInput.focus();
+      });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        showError(el, '');
+        setLoading(el, true);
+        const data = Object.fromEntries(new FormData(form));
+        try {
+          await loginAccount({ email: data.email, password: data.password });
+          window.location.hash = '#/profiles';
+        } catch (err) {
+          showError(el, err.message);
+          setLoading(el, false);
+        }
+      });
+    }
+  } else {
+    const form = el.querySelector('#account-register-form');
+    if (form) {
+      requestAnimationFrame(() => {
+        const emailInput = form.querySelector('#reg-email');
+        if (emailInput) emailInput.focus();
+      });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        showError(el, '');
+        setLoading(el, true);
+        const data = Object.fromEntries(new FormData(form));
+        try {
+          await registerAccount({
+            email: data.email,
+            password: data.password,
+            profileUsername: data.profileUsername,
+            profilePassword: data.profilePassword,
+            currency: data.currency,
+            locale: data.locale,
+          });
+          window.location.hash = '#/profiles';
+        } catch (err) {
+          showError(el, err.message);
+          setLoading(el, false);
+        }
+      });
+    }
+  }
 }

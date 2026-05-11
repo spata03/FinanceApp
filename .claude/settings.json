@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Read(//c/Users/Andre Spataro/.gemini/antigravity/scratch/personal-finance-app/src/data/**)"
+    ]
+  },
+  "agent": "orchestrator"
+}

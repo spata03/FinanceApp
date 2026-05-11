@@ -1,4 +1,4 @@
-const CACHE_NAME = 'finanza-personale-v9';
+const CACHE_NAME = 'finanza-personale-v10';
 const APP_SHELL = [
   './',
   './index.html',
@@ -9,11 +9,14 @@ const APP_SHELL = [
   './src/components/TransactionModal.js',
   './src/components/UserMenu.js',
   './src/data/auth.js',
+  './src/data/auth-accounts.js',
   './src/data/categories.js',
   './src/data/store.js',
+  './src/pages/accounts.js',
   './src/pages/assistant.js',
   './src/pages/dashboard.js',
   './src/pages/monthly.js',
+  './src/pages/profiles.js',
   './src/pages/report.js',
   './src/pages/salvadanaio.js',
   './src/pages/savings.js',

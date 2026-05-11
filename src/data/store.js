@@ -7,25 +7,25 @@
  *   settings{}      – preferenze utente
  */
 
-import { getActiveAccount, getActiveStorageKey } from './auth.js';
-import { getActiveProfile, getActiveAccount as getActiveAccountV2 } from './auth-accounts.js';
+import { getActiveAccount, getActiveProfile } from './auth-accounts.js';
 import { getSyncedState, saveSyncedState } from '../utils/backendClient.js';
 import { showToast } from '../utils/helpers.js';
 
+// Legacy fallback storage key (used when no profile is active)
+const LEGACY_STORAGE_KEY = 'finanza_personale_v1';
+
 // Ritorna la chiave di storage per il profilo attivo
-// Se esiste un profilo attivo nel nuovo sistema, usa il suo storageKey
-// Altrimenti fallback al vecchio sistema
+// Usa il storageKey del profilo v3, oppure il legacy fallback
 function getStorageKey() {
   const profile = getActiveProfile();
-  if (profile) return profile.storageKey;
-  return getActiveStorageKey();
+  if (profile && profile.storageKey) return profile.storageKey;
+  return LEGACY_STORAGE_KEY;
 }
 
 // Ritorna l'ID del profilo attivo (se esiste)
 // Usato per il sync con profileId
 function getActiveProfileId() {
-  const profile = getActiveProfile();
-  return profile?.id || null;
+  return getActiveProfile()?.id || null;
 }
 
 // Helper ID univoco
@@ -346,7 +346,7 @@ function saveState(state) {
 
 function currentStorageScope() {
   const account = getActiveAccount();
-  return account ? `account-local:${account.displayName}` : DEFAULT_STATE.meta.storageScope;
+  return account ? `account-local:${account.email || account.id}` : DEFAULT_STATE.meta.storageScope;
 }
 
 // ── Store singleton ────────────────────────────────────────────────────────
@@ -404,12 +404,13 @@ export const store = {
       },
     });
     saveState(_state);
-    
+
     const account = getActiveAccount();
-    if (account) {
-      queueBackendSave(_state, account.id);
+    const profileId = getActiveProfileId();
+    if (account && profileId) {
+      queueBackendSave(_state, account.id, profileId);
     }
-    
+
     notifyListeners();
   },
 
@@ -533,7 +534,9 @@ export const store = {
     });
     saveState(_state);
     notifyListeners();
-    queueBackendSave(_state);
+    const _acc = getActiveAccount();
+    const _prof = getActiveProfile();
+    if (_acc && _prof) queueBackendSave(_state, _acc.id, _prof.id);
     return clone(result.generated);
   },
 
@@ -589,11 +592,8 @@ export const store = {
     if (!account) {
       return { available: false, error: 'Nessun account attivo.' };
     }
-    
-    // Prova a ottenere l'account e il profile dal nuovo sistema
-    const accountV2 = getActiveAccountV2();
-    const profile = getActiveProfile();
-    const profileId = profile?.id || null;
+
+    const profileId = getActiveProfileId();
 
     const result = await getSyncedState(account.id, profileId).catch(err => {
       if (err.message.includes('403') || err.message.includes('Accedi')) {
@@ -607,7 +607,7 @@ export const store = {
     const remoteTime = stateUpdatedTime(remoteState);
     const localTime = stateUpdatedTime(_state);
 
-    console.log(`[Store] Sync check: Local=${localTime}, Remote=${remoteTime}, Account=${account.id}, Profile=${profileId}`);
+    console.log(`[Store] Sync check: Local=${localTime}, Remote=${remoteTime}, Account=${account.id}, Profile=${profileId || 'none'}`);
 
     // Se il remoto è più nuovo, facciamo PULL
     if (remoteState && remoteTime > localTime) {
@@ -645,6 +645,8 @@ export const store = {
     });
     saveState(_state);
     notifyListeners();
-    queueBackendSave(_state);
+    const _acc = getActiveAccount();
+    const _prof = getActiveProfile();
+    if (_acc && _prof) queueBackendSave(_state, _acc.id, _prof.id);
   },
 };
