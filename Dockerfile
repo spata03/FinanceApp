@@ -12,8 +12,15 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy application code
+# Copy backend code
 COPY backend ./backend
+
+# Copy frontend static files (served directly by the backend)
+COPY index.html ./
+COPY src ./src
+COPY assets ./assets
+COPY sw.js ./
+COPY manifest.webmanifest ./
 
 EXPOSE 10000
 
