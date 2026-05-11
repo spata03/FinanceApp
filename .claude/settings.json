@@ -11,7 +11,10 @@
       "Bash(node -e \"const lock = require\\('./package-lock.json'\\); const prebuild = lock.packages['node_modules/prebuild-install']; console.log\\(JSON.stringify\\(prebuild, null, 2\\)\\)\")",
       "Bash(node -e \"const pkg = require\\('./node_modules/better-sqlite3/package.json'\\); console.log\\('install script:', pkg.scripts.install\\)\")",
       "Bash(node -e \"const fs=require\\('fs'\\); JSON.parse\\(fs.readFileSync\\('c:/Users/Andrea Spataro/.gemini/antigravity/scratch/personal-finance-app/package.json','utf8'\\)\\); console.log\\('JSON valido'\\);\")",
-      "Bash(node -e \"const fs=require\\('fs'\\); JSON.parse\\(fs.readFileSync\\('package.json','utf8'\\)\\); console.log\\('JSON valido'\\);\")"
+      "Bash(node -e \"const fs=require\\('fs'\\); JSON.parse\\(fs.readFileSync\\('package.json','utf8'\\)\\); console.log\\('JSON valido'\\);\")",
+      "Bash(node -e \"const fs=require\\('fs'\\); let d=''; process.stdin.on\\('data',c=>d+=c\\); process.stdin.on\\('end',\\(\\)=>{JSON.parse\\(d\\); console.log\\('JSON committed valido'\\);}\\);\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   },
   "agent": "orchestrator"
