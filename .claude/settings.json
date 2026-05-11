@@ -35,7 +35,9 @@
       "Bash(Test-Path assets *)",
       "Bash(Test-Path sw.js)",
       "Bash(Test-Path manifest.webmanifest)",
-      "Bash(Select-Object -ExpandProperty Name)"
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(grep -E \"\\\\.\\(css|html|js|svg|png|ico|webmanifest\\)$\")",
+      "Bash(git ls-tree *)"
     ]
   },
   "agent": "orchestrator"
