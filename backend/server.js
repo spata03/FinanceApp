@@ -16,6 +16,11 @@ const SESSION_COOKIE = 'fp_session';
 const sessions = new Map();
 const MAX_SYNC_STATE_BYTES = 2 * 1024 * 1024;
 
+// In-memory CSRF token store (resettato a ogni restart)
+// Struttura: sessionId → { token, expiresAt, requestCount }
+const csrfTokenStore = new Map();
+const CSRF_TOKEN_EXPIRATION_MS = 5 * 60 * 1000; // 5 minuti
+
 const ALLOWED_CURRENCIES = new Set(['EUR', 'USD', 'GBP', 'CHF']);
 const ALLOWED_LOCALES = new Set(['it-IT', 'en-US', 'de-DE', 'fr-FR']);
 
@@ -91,35 +96,84 @@ function userIdFromSession(sessionId) {
   return crypto.createHash('sha256').update(sessionId).digest('hex').slice(0, 32);
 }
 
-function generateCsrfToken(sessionId) {
-  // Firma il token con SESSION_SECRET, così rimane valido anche dopo restart
-  return crypto.createHmac('sha256', SESSION_SECRET)
-    .update(sessionId)
-    .digest('hex');
+/**
+ * Genera un token CSRF randomico per la sessione.
+ * Il token viene memorizzato in-memory con expiration time.
+ * Token validi solo per 5 minuti per prevenire replay attacks.
+ */
+function generateAndStoreCsrfToken(sessionId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const now = Date.now();
+  const expiresAt = now + CSRF_TOKEN_EXPIRATION_MS;
+  const requestCount = 0;
+  
+  csrfTokenStore.set(sessionId, { token, expiresAt, requestCount });
+  
+  console.log(`[CSRF] Generato nuovo token per sessione ${sessionId.slice(0, 8)}..., expira tra ${CSRF_TOKEN_EXPIRATION_MS / 1000}s`);
+  
+  return token;
+}
+
+/**
+ * Valida un token CSRF dalla richiesta.
+ * Controlla che il token sia memorizzato, non scaduto e corrisponda.
+ */
+function validateCsrfToken(sessionId, receivedToken) {
+  const stored = csrfTokenStore.get(sessionId);
+  
+  // Token non trovato
+  if (!stored) {
+    console.log(`[CSRF] Token store vuoto per sessione ${sessionId.slice(0, 8)}...`);
+    return false;
+  }
+  
+  // Token scaduto
+  if (Date.now() > stored.expiresAt) {
+    console.log(`[CSRF] Token scaduto per sessione ${sessionId.slice(0, 8)}..., cancellazione`);
+    csrfTokenStore.delete(sessionId);
+    return false;
+  }
+  
+  // Token mismatch
+  if (receivedToken !== stored.token) {
+    console.log(`[CSRF] Mismatch token per sessione ${sessionId.slice(0, 8)}..., ricevuto: ${receivedToken?.slice(0, 10)}..., atteso: ${stored.token?.slice(0, 10)}...`);
+    return false;
+  }
+  
+  // Token valido, incrementa counter
+  stored.requestCount++;
+  console.log(`[CSRF] Token valido per sessione ${sessionId.slice(0, 8)}..., request count: ${stored.requestCount}`);
+  
+  return true;
 }
 
 function createSession(sessionId = crypto.randomBytes(32).toString('hex')) {
   const session = {
     id: sessionId,
     userId: userIdFromSession(sessionId),
-    csrfToken: generateCsrfToken(sessionId), // Token calcolato, non random
     createdAt: Date.now(),
     authorizedAccountIds: new Set(),
   };
   sessions.set(sessionId, session);
+  
+  // Genera e memorizza il token CSRF per questa sessione
+  const csrfToken = generateAndStoreCsrfToken(sessionId);
+  
   // Persist sessions asynchronously
   writeSessions(sessions).catch(error => console.error('Error saving session:', error));
-  return session;
+  
+  return { ...session, csrfToken };
 }
 
 function getSession(req, res) {
   const cookies = parseCookies(req.headers.cookie);
   const verifiedId = verifySessionCookie(cookies[SESSION_COOKIE]);
-  const session = verifiedId && sessions.has(verifiedId)
+  const sessionExists = verifiedId && sessions.has(verifiedId);
+  const session = sessionExists
     ? sessions.get(verifiedId)
     : createSession(verifiedId || undefined);
 
-  console.log(`[SESSION] Cookie: ${cookies[SESSION_COOKIE]?.slice(0, 20)}..., Verified ID: ${verifiedId?.slice(0, 20)}..., Session exists: ${sessions.has(verifiedId)}, Created new: ${!sessions.has(verifiedId)}`);
+  console.log(`[SESSION] Cookie: ${cookies[SESSION_COOKIE]?.slice(0, 20)}..., Verified ID: ${verifiedId?.slice(0, 20)}..., Session exists: ${sessionExists}, Created new: ${!sessionExists}`);
 
   const cookieParts = [
     `${SESSION_COOKIE}=${encodeURIComponent(encodeSessionCookie(session.id))}`,
@@ -135,15 +189,27 @@ function getSession(req, res) {
 
   res.setHeader('Set-Cookie', cookieParts.join('; '));
   if (!session.authorizedAccountIds) session.authorizedAccountIds = new Set();
-  return session;
+  
+  // Se la sessione esiste già, genera un nuovo token CSRF se scaduto
+  const stored = csrfTokenStore.get(session.id);
+  let csrfToken = null;
+  if (!stored || Date.now() > stored.expiresAt) {
+    csrfToken = generateAndStoreCsrfToken(session.id);
+  } else {
+    csrfToken = stored.token;
+  }
+  
+  return { ...session, csrfToken };
 }
 
 function assertCsrf(req, session) {
   const token = req.headers['x-csrf-token'];
-  // Calcola il token atteso dalla sessionId, così è valido anche dopo restart
-  const expected = generateCsrfToken(session.id);
-  const valid = token === expected;
-  console.log(`[CSRF] Check: received="${token?.slice(0, 10)}...", expected="${expected?.slice(0, 10)}...", valid=${valid}`);
+  const valid = validateCsrfToken(session.id, token);
+  
+  if (!valid) {
+    console.log(`[CSRF] Validazione fallita per sessione ${session.id.slice(0, 8)}...`);
+  }
+  
   return valid;
 }
 
@@ -382,6 +448,22 @@ function stateFileForAccount(accountId) {
   return path.join(SYNC_STATE_DIR, `${safeId}.json`);
 }
 
+/**
+ * Percorso del file di stato per un profilo dentro un account
+ * Supporta il nuovo sistema account/profili
+ */
+function stateFileForProfile(accountId, profileId) {
+  const safeAccountId = safeAccountId(accountId);
+  const safeProfileId = safeAccountId(profileId); // Reuse safeAccountId validator
+  if (!safeAccountId || !safeProfileId) {
+    const error = new Error('Account o profilo non valido');
+    error.status = 400;
+    throw error;
+  }
+  const accountDir = path.join(SYNC_STATE_DIR, safeAccountId);
+  return path.join(accountDir, `${safeProfileId}.json`);
+}
+
 function sanitizeSyncState(state = {}) {
   const input = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
   const meta = input.meta && typeof input.meta === 'object' ? input.meta : {};
@@ -402,9 +484,14 @@ function sanitizeSyncState(state = {}) {
   };
 }
 
-async function readSyncState(accountId) {
+async function readSyncState(accountId, profileId = null) {
   try {
-    const raw = await fs.readFile(stateFileForAccount(accountId), 'utf8');
+    // Se profileId fornito, usa il nuovo formato per profilo
+    const file = profileId
+      ? stateFileForProfile(accountId, profileId)
+      : stateFileForAccount(accountId);
+    
+    const raw = await fs.readFile(file, 'utf8');
     const parsed = JSON.parse(raw);
     return {
       exists: true,
@@ -416,10 +503,17 @@ async function readSyncState(accountId) {
   }
 }
 
-async function writeSyncState(accountId, state) {
+async function writeSyncState(accountId, state, profileId = null) {
   const cleanState = sanitizeSyncState(state);
-  await fs.mkdir(SYNC_STATE_DIR, { recursive: true });
-  const file = stateFileForAccount(accountId);
+  
+  // Se profileId fornito, usa il nuovo formato per profilo
+  const file = profileId
+    ? stateFileForProfile(accountId, profileId)
+    : stateFileForAccount(accountId);
+  
+  // Crea directory se necessario
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  
   const tmp = `${file}.tmp`;
   await fs.writeFile(tmp, JSON.stringify({ schemaVersion: 1, state: cleanState }, null, 2));
   await fs.rename(tmp, file);
@@ -752,11 +846,12 @@ async function handleApi(req, res, url) {
 
   if (pathClean === '/api/sync/state' && req.method === 'GET') {
     const accountId = url.searchParams.get('accountId');
+    const profileId = url.searchParams.get('profileId'); // Opzionale per nuovo formato
     if (!canAccessAccount(session, accountId)) {
       sendJson(res, 403, { error: 'Accedi all account prima di sincronizzare i dati.' });
       return;
     }
-    const state = await readSyncState(accountId);
+    const state = await readSyncState(accountId, profileId);
     sendJson(res, 200, state);
     return;
   }
@@ -772,7 +867,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 403, { error: 'Accedi all account prima di sincronizzare i dati.' });
       return;
     }
-    const state = await writeSyncState(body.accountId, body.state);
+    const state = await writeSyncState(body.accountId, body.state, body.profileId);
     sendJson(res, 200, { exists: true, state });
     return;
   }

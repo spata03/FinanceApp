@@ -8,10 +8,25 @@
  */
 
 import { getActiveAccount, getActiveStorageKey } from './auth.js';
+import { getActiveProfile, getActiveAccount as getActiveAccountV2 } from './auth-accounts.js';
 import { getSyncedState, saveSyncedState } from '../utils/backendClient.js';
 import { showToast } from '../utils/helpers.js';
 
-const getStorageKey = () => getActiveStorageKey();
+// Ritorna la chiave di storage per il profilo attivo
+// Se esiste un profilo attivo nel nuovo sistema, usa il suo storageKey
+// Altrimenti fallback al vecchio sistema
+function getStorageKey() {
+  const profile = getActiveProfile();
+  if (profile) return profile.storageKey;
+  return getActiveStorageKey();
+}
+
+// Ritorna l'ID del profilo attivo (se esiste)
+// Usato per il sync con profileId
+function getActiveProfileId() {
+  const profile = getActiveProfile();
+  return profile?.id || null;
+}
 
 // Helper ID univoco
 const generateId = () => {
@@ -354,13 +369,13 @@ function notifyListeners() {
   _listeners.forEach(fn => fn(clone(_state)));
 }
 
-function queueBackendSave(state, accountId) {
+function queueBackendSave(state, accountId, profileId = null) {
   if (!accountId) return;
 
   const snapshot = clone(state);
   clearTimeout(backendSaveTimer);
   backendSaveTimer = setTimeout(() => {
-    saveSyncedState(accountId, snapshot)
+    saveSyncedState(accountId, snapshot, profileId)
       .then(res => {
         if (!res.available) console.warn('[Store] Sync fallito:', res.error);
         else console.log('[Store] Sync completato con successo.');
@@ -574,8 +589,13 @@ export const store = {
     if (!account) {
       return { available: false, error: 'Nessun account attivo.' };
     }
+    
+    // Prova a ottenere l'account e il profile dal nuovo sistema
+    const accountV2 = getActiveAccountV2();
+    const profile = getActiveProfile();
+    const profileId = profile?.id || null;
 
-    const result = await getSyncedState(account.id).catch(err => {
+    const result = await getSyncedState(account.id, profileId).catch(err => {
       if (err.message.includes('403') || err.message.includes('Accedi')) {
         showToast('Sync disattivato: effettua il login con password una volta su questo dispositivo.', 'info', 6000);
       }
@@ -587,7 +607,7 @@ export const store = {
     const remoteTime = stateUpdatedTime(remoteState);
     const localTime = stateUpdatedTime(_state);
 
-    console.log(`[Store] Sync check: Local=${localTime}, Remote=${remoteTime}, Account=${account.id}`);
+    console.log(`[Store] Sync check: Local=${localTime}, Remote=${remoteTime}, Account=${account.id}, Profile=${profileId}`);
 
     // Se il remoto è più nuovo, facciamo PULL
     if (remoteState && remoteTime > localTime) {
@@ -601,7 +621,7 @@ export const store = {
     // Se il locale è più nuovo, facciamo PUSH
     if (localTime > remoteTime || !result.exists) {
       console.log('[Store] Sincronizzazione: PUSH dei dati al server.');
-      const saved = await saveSyncedState(account.id, _state);
+      const saved = await saveSyncedState(account.id, _state, profileId);
       return {
         available: saved.available,
         direction: saved.available ? 'push' : 'none',

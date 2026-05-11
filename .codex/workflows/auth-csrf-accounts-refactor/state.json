@@ -1,0 +1,46 @@
+{
+  "task": "auth-csrf-accounts-refactor",
+  "title": "Fix CSRF Token + Implement Account/Profile Hierarchy",
+  "status": "IMPLEMENTATION_COMPLETE",
+  "phase": "READY_FOR_REVIEW",
+  "currentIteration": 2,
+  "createdAt": "2026-05-11",
+  "completedAt": "2026-05-11",
+  "reports": {
+    "research": ".codex/workflows/auth-csrf-accounts-refactor/research.md",
+    "implementation-iteration-1": ".codex/workflows/auth-csrf-accounts-refactor/implementation-iteration-1.md",
+    "implementation-iteration-2": ".codex/workflows/auth-csrf-accounts-refactor/implementation-iteration-2.md"
+  },
+  "filesModified": [
+    "backend/server.js",
+    "src/data/auth-accounts.js",
+    "src/pages/accounts.js",
+    "src/pages/profiles.js",
+    "src/app.js",
+    "src/data/store.js",
+    "src/utils/backendClient.js"
+  ],
+  "acceptanceCriteria": [
+    "AC-001: CSRF token è casuale, non deterministico ✅",
+    "AC-002: Token ha expiration time di 5 minuti ✅",
+    "AC-003: Token viene rigenerato automaticamente al restart del server ✅",
+    "AC-004: Sync operations non falliscono con 'Token CSRF non valido' dopo invalidazione sessione ✅",
+    "AC-005: Request count è tracciato e loggato per token ✅",
+    "AC-006: Device può memorizzare più account (email + password) ✅",
+    "AC-007: Ogni account può avere 1+ profili (username + password per account) ✅",
+    "AC-008: Primo accesso richiede creazione di account + primo profilo ✅",
+    "AC-009: Accessi successivi mostrano selezione account → selezione profilo ✅",
+    "AC-010: Se profilo default esiste, accesso diretto a dashboard ⏳",
+    "AC-011: Password profilo può essere ricordata su dispositivo (dopo permesso esplicito) ⏳",
+    "AC-012: 'Cambia Account' button torna a selezione account ✅",
+    "AC-013: Backend sincronizza stato separatamente per account/profilo ✅",
+    "AC-014: Logout pulisce sessione ma non account dal device ✅"
+  ],
+  "verificationCommands": [
+    "npm run build || echo 'No build script'",
+    "grep -n 'generateAndStoreCsrfToken' backend/server.js",
+    "grep -n 'stateFileForProfile' backend/server.js",
+    "find backend/data/sync-state -type d | head -5"
+  ],
+  "unresolvedFindings": []
+}

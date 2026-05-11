@@ -210,12 +210,16 @@ export async function authorizeSyncedAccount(accountId, authToken) {
   }
 }
 
-export async function getSyncedState(accountId) {
+export async function getSyncedState(accountId, profileId = null) {
   const session = await ensureBackendSession();
   if (!session.available) return { available: false, error: session.error };
 
   try {
-    const payload = await requestJson(`/api/sync/state?accountId=${encodeURIComponent(accountId)}`);
+    let url = `/api/sync/state?accountId=${encodeURIComponent(accountId)}`;
+    if (profileId) {
+      url += `&profileId=${encodeURIComponent(profileId)}`;
+    }
+    const payload = await requestJson(url);
     return {
       available: true,
       exists: Boolean(payload.exists),
@@ -226,7 +230,7 @@ export async function getSyncedState(accountId) {
   }
 }
 
-export async function saveSyncedState(accountId, state) {
+export async function saveSyncedState(accountId, state, profileId = null) {
   try {
     return await requestWithCsrfRetry(async () => {
       // Rinfrescare SEMPRE il token prima del PUT critico (invalida e rifetcha)
@@ -239,7 +243,7 @@ export async function saveSyncedState(accountId, state) {
           'Content-Type': 'application/json',
           'X-CSRF-Token': session.csrfToken,
         },
-        body: JSON.stringify({ accountId, state }),
+        body: JSON.stringify({ accountId, state, profileId }),
       });
       return {
         available: true,

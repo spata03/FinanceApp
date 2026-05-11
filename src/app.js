@@ -16,14 +16,19 @@ import { renderMonthly }      from './pages/monthly.js';
 import { renderReport }       from './pages/report.js';
 import { renderSettings }     from './pages/settings.js';
 import { renderAssistant }    from './pages/assistant.js';
+import { renderAccountsPage } from './pages/accounts.js';
+import { renderProfilesPage } from './pages/profiles.js';
 import { formatMonthYear }    from './utils/formatters.js';
 import { store }              from './data/store.js';
 import { getActiveAccount, syncAccountsWithBackend } from './data/auth.js';
+import { getActiveProfile, getActiveAccount as getActiveAccountV2 } from './data/auth-accounts.js';
 import { ensureAuthenticated, setupUserMenu } from './components/UserMenu.js';
 import { authorizeSyncedAccount } from './utils/backendClient.js';
 
 // ── Mappa rotte ───────────────────────────────────────────────────────────────
 const ROUTES = {
+  accounts:     renderAccountsPage,
+  profiles:     renderProfilesPage,
   dashboard:    renderDashboard,
   entrate:      container => renderTransactions(container, 'income'),
   spese:        container => renderTransactions(container, 'expense'),
@@ -39,25 +44,44 @@ const ROUTES = {
 function navigateTo(page) {
   if (!ROUTES[page]) page = 'dashboard';
 
-  // Aggiorna stato attivo nella sidebar
-  document.querySelectorAll('.nav-btn').forEach(btn => {
-    const isActive = btn.dataset.page === page;
-    btn.classList.toggle('active', isActive);
-    btn.setAttribute('aria-current', isActive ? 'page' : 'false');
-  });
+  // Pagine che non hanno sidebar
+  const noSidebarPages = ['accounts', 'profiles'];
+  const hasNoSidebar = noSidebarPages.includes(page);
+
+  // Mostra/nascondi sidebar
+  const sidebar = document.getElementById('sidebar');
+  const topbar = document.getElementById('topbar');
+  if (sidebar) sidebar.style.display = hasNoSidebar ? 'none' : '';
+  if (topbar) topbar.style.display = hasNoSidebar ? 'none' : '';
+
+  // Aggiorna stato attivo nella sidebar (solo se visibile)
+  if (!hasNoSidebar) {
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      const isActive = btn.dataset.page === page;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-current', isActive ? 'page' : 'false');
+    });
+  }
 
   // Aggiorna hash URL senza innescare hashchange
-  const newHash = `#${page}`;
+  const newHash = `#/${page}`;
   if (window.location.hash !== newHash) {
     history.replaceState(null, '', newHash);
   }
 
   // Ottieni il container e sostituiscilo con un clone pulito
   // (rimuove tutti i vecchi event listener senza doverli tracciare)
-  const old = document.getElementById('page-container');
-  const container = document.createElement('div');
-  container.id = 'page-container';
-  old.parentNode.replaceChild(container, old);
+  let container = document.getElementById('app');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'app';
+    const pageContainer = document.getElementById('page-container');
+    if (pageContainer) {
+      pageContainer.parentNode.insertBefore(container, pageContainer);
+    } else {
+      document.body.appendChild(container);
+    }
+  }
 
   // Animazione entrata
   container.style.opacity = '0';
@@ -110,7 +134,28 @@ function bindSidebar() {
 
 // ── Hash router ───────────────────────────────────────────────────────────────
 function handleHashChange() {
-  const hash = window.location.hash.replace('#', '') || 'dashboard';
+  let hash = window.location.hash.replace(/^#\/?/, '') || 'dashboard';
+  
+  // Check autenticazione profilo
+  const profile = getActiveProfile();
+  const account = getActiveAccountV2();
+  
+  // Pagine pubbliche (non richiedono profilo)
+  const publicPages = ['accounts', 'profiles'];
+  
+  if (!publicPages.includes(hash)) {
+    // Pagine private: richiedono profilo attivo
+    if (!profile) {
+      if (!account) {
+        // Nessun account: vai a selezione account
+        hash = 'accounts';
+      } else {
+        // Account attivo ma nessun profilo: vai a selezione profilo
+        hash = 'profiles';
+      }
+    }
+  }
+  
   navigateTo(hash);
 }
 
