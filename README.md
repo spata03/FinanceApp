@@ -6,44 +6,58 @@ Un'applicazione web **semplice e moderna** per gestire entrate, spese e obiettiv
 
 ## 🗂️ Struttura del progetto
 
+Dalla v2 il progetto è suddiviso in tre layer netti: **frontend** (SPA),
+**backend** (HTTP server + middleware), **api** (controller per endpoint).
+Lo storage persistente è su **Neon Postgres** (vedi DEPLOY.md).
+
 ```
 personal-finance-app/
-├── index.html                  # Entry point HTML
-├── README.md
+├── frontend/                # SPA statica servita dal backend
+│   ├── index.html
+│   ├── sw.js
+│   ├── manifest.webmanifest
+│   ├── assets/
+│   └── src/
+│       ├── app.js           # Router SPA + bootstrap
+│       ├── data/            # store, auth, categorie, seed
+│       ├── utils/           # formatters, calculations, helpers, backendClient
+│       ├── components/      # TransactionModal, RecurringEntryModal, UserMenu
+│       ├── pages/           # dashboard, entrate/spese, mensile, risparmi, ecc.
+│       └── styles/          # variables, reset, main, components
 │
-├── assets/
-│   ├── icons/                  # Icone SVG custom (future)
-│   └── fonts/                  # Font locali (opzionale)
+├── backend/                 # HTTP bootstrap + middleware (no business logic)
+│   ├── server.js            # Dispatcher /api/* → controller; serve frontend/
+│   ├── config.js            # Variabili d'ambiente, validate-on-boot
+│   └── middleware/
+│       ├── session.js       # Cookie firmato HttpOnly+Secure+SameSite=None
+│       ├── csrf.js          # Validazione X-CSRF-Token
+│       ├── body.js          # JSON body reader con limite size
+│       └── errors.js        # Header sicurezza, sendJson()
 │
-└── src/
-    ├── app.js                  # Router SPA + bootstrap
-    │
-    ├── data/
-    │   ├── store.js            # Store centralizzato (localStorage)
-    │   ├── categories.js       # Categorie predefinite entrate/spese
-    │   └── seed.js             # Dati demo per test
-    │
-    ├── utils/
-    │   ├── formatters.js       # Formattazione valuta, date, numeri
-    │   ├── calculations.js     # Calcoli finanziari (saldo, trend, %)
-    │   └── helpers.js          # Utility DOM (toast, modal, createElement…)
-    │
-    ├── components/
-    │   └── TransactionModal.js # Modale aggiunta/modifica transazione
-    │
-    ├── pages/
-    │   ├── dashboard.js        # Dashboard con KPI e ultime transazioni
-    │   ├── transactions.js     # Pagina Entrate / Spese (riusabile)
-    │   ├── savings.js          # Obiettivi di risparmio
-    │   ├── report.js           # Report mensile e annuale
-    │   └── settings.js        # Impostazioni (valuta, profilo, export)
-    │
-    └── styles/
-        ├── reset.css           # CSS reset
-        ├── variables.css       # Design tokens (colori, spazi, font…)
-        ├── main.css            # Layout principale (sidebar + main)
-        └── components.css      # Stili componenti riusabili
+├── api/                     # Controller HTTP (uno per area funzionale)
+│   ├── auth.controller.js   # register, login, profile/select/create/delete, me, logout
+│   ├── session.controller.js# GET /api/session — emette CSRF token
+│   ├── profile.controller.js# legacy GET/PUT /api/profile
+│   ├── sync.controller.js   # GET/PUT /api/sync/state per profilo
+│   ├── assistant.controller.js # POST /api/assistant/analyze (regole pure)
+│   ├── health.controller.js # GET /api/health
+│   └── _helpers.js          # sanitize, generateId, normalizeEmail
+│
+└── db/                      # Persistenza (Neon Postgres via @neondatabase/serverless)
+    ├── client.js            # neon(DATABASE_URL) → sql tagged-template
+    ├── migrate.js           # Runner idempotente, splitter SQL
+    ├── migrations/
+    │   └── 001-initial.sql
+    └── repositories/
+        ├── accounts.repo.js
+        ├── profiles.repo.js
+        ├── sessions.repo.js
+        └── syncState.repo.js
 ```
+
+Tutti i file JS sono **ES modules** (Node ≥18). Il backend e l'api **non**
+hanno più dipendenze native: solo `@neondatabase/serverless` (HTTPS, no
+socket open).
 
 ---
 

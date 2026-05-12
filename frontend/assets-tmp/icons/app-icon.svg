@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FinanzaPersonale">
-  <rect width="512" height="512" rx="112" fill="#141824"/>
-  <path d="M112 340c0-83 61-150 144-150s144 67 144 150v34c0 14-11 26-26 26H138c-15 0-26-12-26-26v-34Z" fill="#6c63ff"/>
-  <path d="M144 334c9-57 54-98 112-98s103 41 112 98" fill="none" stroke="#00d4aa" stroke-width="30" stroke-linecap="round"/>
-  <circle cx="256" cy="154" r="58" fill="#f59e0b"/>
-  <path d="M256 119v70M229 141h45c15 0 27 10 27 24s-12 24-27 24h-36" fill="none" stroke="#141824" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>

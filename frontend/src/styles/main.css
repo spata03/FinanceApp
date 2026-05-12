@@ -9,6 +9,14 @@
   min-height: 100dvh;
 }
 
+/* When a fullscreen route (accounts/profiles) is active, drop the sidebar grid
+   so the page can use the full viewport width to center its content. */
+html.fullscreen-route #app {
+  display: block;
+  grid-template-columns: none;
+  min-height: 100dvh;
+}
+
 /* ── Sidebar ── */
 .sidebar {
   position: sticky;

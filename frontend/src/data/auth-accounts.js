@@ -164,6 +164,7 @@ export async function loginAccount({ email, password }) {
     id: result.account.id,
     email: result.account.email,
     profiles: result.profiles || [],
+    lastProfileId: result.account.lastProfileId || null,
   };
   writeJson(ACTIVE_ACCOUNT_KEY_V3, accountCache);
   // Clear active profile on account login
@@ -262,10 +263,15 @@ export async function checkAndRestoreSession() {
     const result = await getMe();
     if (!result.available || !result.account) return { restored: false };
 
+    const lastProfileId = result.lastProfileId
+      || (result.account && result.account.lastProfileId)
+      || null;
+
     const accountCache = {
       id: result.account.id,
       email: result.account.email,
       profiles: result.profiles || [],
+      lastProfileId,
     };
     writeJson(ACTIVE_ACCOUNT_KEY_V3, accountCache);
 
@@ -275,7 +281,12 @@ export async function checkAndRestoreSession() {
     }
     setActiveAccountId(result.account.id);
 
-    return { restored: true, account: result.account, profile: result.profile };
+    return {
+      restored: true,
+      account: result.account,
+      profile: result.profile,
+      lastProfileId,
+    };
   } catch (e) {
     console.warn('[auth-accounts] Session restore failed:', e.message);
     return { restored: false };

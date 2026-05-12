@@ -7,33 +7,33 @@
   <body>
     <pre id="results">Running...</pre>
     <script type="module">
-      import '../src/pages/dashboard.js';
-      import '../src/pages/transactions.js';
-      import '../src/pages/savings.js';
-      import '../src/pages/salvadanaio.js';
-      import '../src/pages/monthly.js';
-      import '../src/pages/report.js';
-      import '../src/pages/settings.js';
-      import '../src/pages/assistant.js';
-      import '../src/components/TransactionModal.js';
-      import '../src/components/UserMenu.js';
-      import '../src/data/auth.js';
-      import '../src/utils/backendClient.js';
+      import '../frontend/src/pages/dashboard.js';
+      import '../frontend/src/pages/transactions.js';
+      import '../frontend/src/pages/savings.js';
+      import '../frontend/src/pages/salvadanaio.js';
+      import '../frontend/src/pages/monthly.js';
+      import '../frontend/src/pages/report.js';
+      import '../frontend/src/pages/settings.js';
+      import '../frontend/src/pages/assistant.js';
+      import '../frontend/src/components/TransactionModal.js';
+      import '../frontend/src/components/UserMenu.js';
+      import '../frontend/src/data/auth.js';
+      import '../frontend/src/utils/backendClient.js';
 
       const results = document.getElementById('results');
       const modules = [
-        '../src/pages/dashboard.js',
-        '../src/pages/transactions.js',
-        '../src/pages/savings.js',
-        '../src/pages/salvadanaio.js',
-        '../src/pages/monthly.js',
-        '../src/pages/report.js',
-        '../src/pages/settings.js',
-        '../src/pages/assistant.js',
-        '../src/components/TransactionModal.js',
-        '../src/components/UserMenu.js',
-        '../src/data/auth.js',
-        '../src/utils/backendClient.js',
+        '../frontend/src/pages/dashboard.js',
+        '../frontend/src/pages/transactions.js',
+        '../frontend/src/pages/savings.js',
+        '../frontend/src/pages/salvadanaio.js',
+        '../frontend/src/pages/monthly.js',
+        '../frontend/src/pages/report.js',
+        '../frontend/src/pages/settings.js',
+        '../frontend/src/pages/assistant.js',
+        '../frontend/src/components/TransactionModal.js',
+        '../frontend/src/components/UserMenu.js',
+        '../frontend/src/data/auth.js',
+        '../frontend/src/utils/backendClient.js',
       ];
       results.textContent = modules.map(path => `PASS ${path}`).join('\n');
     </script>

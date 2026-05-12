@@ -78,7 +78,7 @@
         }));
 
         const stamp = Date.now();
-        const auth = await import(`../src/data/auth.js?auth=${stamp}`);
+        const auth = await import(`../frontend/src/data/auth.js?auth=${stamp}`);
         assert(auth.listAccounts().length === 0, 'no local accounts after cleanup');
 
         const first = await auth.registerAccount({
@@ -91,7 +91,7 @@
         assert(firstRawAccount.password.algorithm === 'fallback-hash', 'fallback password account can be created without SubtleCrypto');
         assert(backend.accounts.some(account => account.displayName === 'Andrea'), 'registered account is pushed to backend sync');
 
-        const firstStoreModule = await import(`../src/data/store.js?first=${stamp}`);
+        const firstStoreModule = await import(`../frontend/src/data/store.js?first=${stamp}`);
         const firstStore = firstStoreModule.store;
         assert(firstStore.getStorageInfo().key === legacyKey, 'store uses first user storage key');
         assert(firstStore.getSettings().currency === 'CHF', 'legacy settings are preserved for first user');
@@ -105,7 +105,7 @@
         assert(second.storageKey !== legacyKey, 'second user receives a separate storage key');
         assert(auth.getActiveAccount().displayName === 'Bob', 'second user becomes active');
 
-        const secondStoreModule = await import(`../src/data/store.js?second=${stamp}`);
+        const secondStoreModule = await import(`../frontend/src/data/store.js?second=${stamp}`);
         const secondStore = secondStoreModule.store;
         assert(secondStore.getStorageInfo().key === second.storageKey, 'store switches to second user storage key');
         assert(secondStore.getSettings().currency === 'EUR', 'second user starts with default settings');
@@ -120,7 +120,7 @@
         assert(rejected, 'wrong password is rejected');
 
         await auth.loginAccount(first.id, 'password123');
-        const firstStoreAgainModule = await import(`../src/data/store.js?firstAgain=${stamp}`);
+        const firstStoreAgainModule = await import(`../frontend/src/data/store.js?firstAgain=${stamp}`);
         const firstStoreAgain = firstStoreAgainModule.store;
         assert(firstStoreAgain.getStorageInfo().key === legacyKey, 'login restores first user storage key');
         assert(firstStoreAgain.getSettings().userName === 'Andrea', 'first user data remains separate');

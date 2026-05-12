@@ -39,7 +39,25 @@
       "Bash(grep -E \"\\\\.\\(css|html|js|svg|png|ico|webmanifest\\)$\")",
       "Bash(git ls-tree *)",
       "Bash(node --check \"c:/Users/Andrea Spataro/.gemini/antigravity/scratch/personal-finance-app/src/app.js\")",
-      "Bash(node --check src/app.js)"
+      "Bash(node --check src/app.js)",
+      "Bash(node --check \"/c/Users/Andrea Spataro/.gemini/antigravity/scratch/personal-finance-app/src/app.js\")",
+      "Bash(git push *)",
+      "Bash(node --check \"c:\\\\Users\\\\Andrea Spataro\\\\.gemini\\\\antigravity\\\\scratch\\\\personal-finance-app\\\\src\\\\utils\\\\backendClient.js\")",
+      "Bash(node --check \"c:\\\\Users\\\\Andrea Spataro\\\\.gemini\\\\antigravity\\\\scratch\\\\personal-finance-app\\\\src\\\\pages\\\\profiles.js\")",
+      "Bash(git mv *)",
+      "Bash(mv frontend/assets-tmp/icons frontend/assets/icons)",
+      "Bash(mv frontend/assets-tmp/fonts frontend/assets/fonts)",
+      "Bash(rmdir frontend/assets-tmp)",
+      "Bash(node -e \"import\\('./db/client.js'\\).then\\(m => console.log\\('OK', typeof m.sql\\)\\).catch\\(e => { console.error\\('FAIL', e.message\\); process.exit\\(1\\); }\\)\")",
+      "Bash(node -e \"import\\('./db/client.js'\\).then\\(m => console.log\\('OK', typeof m.sql, typeof m.getSql\\)\\).catch\\(e => { console.error\\('FAIL', e.message\\); process.exit\\(1\\); }\\)\")",
+      "Bash(node -e \"import\\('./backend/server.js'\\).then\\(m => console.log\\('OK', typeof m.server, typeof m.buildAssistantReply\\)\\).catch\\(e => { console.error\\('FAIL', e.message\\); console.error\\(e.stack\\); process.exit\\(1\\); }\\)\")",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(powershell -Command \"Stop-Process -Name node -Force -ErrorAction SilentlyContinue; echo done\")",
+      "Bash(node -e \"import\\('@neondatabase/serverless'\\).then\\(m => { const sql = m.neon\\('postgres://fake@host/db'\\); console.log\\('query method:', typeof sql.query\\); console.log\\('keys:', Object.getOwnPropertyNames\\(sql\\).slice\\(0,20\\)\\); }\\)\")",
+      "Bash(node -e \"import\\('./db/migrate.js'\\).then\\(async \\(m\\) => { const fs = await import\\('node:fs/promises'\\); const c = await fs.readFile\\('./db/migrations/001-initial.sql','utf8'\\); const stmts = m.splitSqlStatements\\(c\\); console.log\\('count:', stmts.length\\); stmts.forEach\\(\\(s,i\\) => console.log\\('===',i,'===\\\\n',s.slice\\(0,80\\).replace\\(/\\\\n/g, ' '\\)\\)\\); }\\)\")",
+      "Bash(node -e \"import\\('./db/migrate.js'\\).then\\(async \\(m\\) => { const fs = await import\\('node:fs/promises'\\); const c = await fs.readFile\\('./db/migrations/001-initial.sql','utf8'\\); const stmts = m.splitSqlStatements\\(c\\); console.log\\('=== STMT 0 ===\\\\n' + stmts[0]\\); console.log\\('=== STMT 2 ===\\\\n' + stmts[2]\\); }\\)\")",
+      "Bash(grep -n \"END\\\\$\\\\$\\\\|^DO \" db/migrations/001-initial.sql)",
+      "Bash(node --input-type=module -e \"import\\('./api/assistant.controller.js'\\).then\\(m => { const r = m.buildAssistantReply\\('Come va?', {settings:{currency:'EUR',locale:'it-IT'}, transactions:[{type:'income',amount:1000,source:'monthly',category:'stipendio',date:new Date\\(\\).toISOString\\(\\).split\\('T'\\)[0]},{type:'expense',amount:100,source:'monthly',category:'cibo',date:new Date\\(\\).toISOString\\(\\).split\\('T'\\)[0]}], recurringEntries:[{type:'income',amount:1000,active:true}], recurringExpenses:[{amount:100,active:true}]}\\); console.log\\(r.includes\\('Analisi AI backend'\\) ? 'PASS' : 'FAIL: missing header'\\); console.log\\(r.split\\('\\\\\\\\n'\\).slice\\(0,3\\).join\\('\\\\\\\\n'\\)\\); }\\)\")"
     ]
   },
   "agent": "orchestrator"

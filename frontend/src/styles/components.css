@@ -849,16 +849,43 @@
 /* ── Accounts page: vertically & horizontally center the auth card ── */
 .page-accounts {
   min-height: 100dvh;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--sp-6);
   background: var(--clr-bg);
+  box-sizing: border-box;
 }
 
+/* Inner wrapper: caps width and centers horizontally */
+.page-accounts__inner,
 .page-accounts--centered {
   width: 100%;
   max-width: 480px;
+  margin: 0 auto;
+}
+
+/* The auth card itself fills its parent (which is already capped) */
+.page-accounts .auth-card {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Buttons inside the auth-card form should span full width for readability */
+.page-accounts .auth-card form .btn--primary {
+  width: 100%;
+}
+
+/* Mobile: reduce padding so the card breathes on narrow screens */
+@media (max-width: 580px) {
+  .page-accounts {
+    padding: var(--sp-4);
+  }
+  .page-accounts .auth-card {
+    padding: var(--sp-6);
+    gap: var(--sp-3);
+  }
 }
 
 /* ── Profiles page: three-zone flex column layout ── */
@@ -932,6 +959,23 @@
   border-color: var(--clr-primary);
   color: var(--clr-primary);
   background: var(--clr-surface-2);
+}
+
+/* "Ultimo usato" badge on the most recently selected profile card */
+.profile-card--last-used {
+  position: relative;
+}
+
+.profile-badge {
+  display: inline-block;
+  margin-top: var(--sp-2);
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: var(--fw-semi);
+  color: #fff;
+  background: var(--clr-primary);
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
 }
 
 /* Inline text-link button (used for account switch links) */

@@ -1,162 +1,108 @@
-# 🌐 Guida al Deployment – Accesso da iPhone ovunque
+# Guida al Deployment – FinanzaPersonale
 
-Questa guida spiega come rendere FinanzaPersonale accessibile da iPhone (o qualsiasi dispositivo) anche quando il PC non è acceso.
-
----
-
-## Opzione 1: Render.com (Consigliato – Gratuito)
-
-Render offre hosting Node.js gratuito con persistenza dei dati.
-
-### Passaggi
-
-1. **Crea un account** su [render.com](https://render.com)
-
-2. **Prepara il repository Git**:
-   ```bash
-   cd personal-finance-app
-   git init
-   git add .
-   git commit -m "Deploy FinanzaPersonale"
-   ```
-
-3. **Carica su GitHub** (o GitLab):
-   ```bash
-   # Crea un repository PRIVATO su GitHub, poi:
-   git remote add origin https://github.com/TUO-USERNAME/finanza-personale.git
-   git push -u origin main
-   ```
-
-4. **Configura su Render**:
-   - Vai su [dashboard.render.com](https://dashboard.render.com)
-   - Clicca "New +" → "Web Service"
-   - Connetti il tuo repository GitHub
-   - Configurazione:
-     - **Name**: `finanza-personale`
-     - **Runtime**: `Node`
-     - **Build Command**: `exit 0`
-     - **Start Command**: `node backend/server.js`
-     - **Instance Type**: Free
-   - Aggiungi variabile d'ambiente:
-     - `SESSION_SECRET` = (genera una stringa sicura, es. `openssl rand -hex 32`)
-     - `PORT` = `10000` (Render usa questa porta)
-
-5. **Deploy**: Render avvierà automaticamente il server
-
-6. **Accedi da iPhone**:
-   - Apri Safari sul tuo iPhone
-   - Vai a `https://finanza-personale.onrender.com`
-   - Tocca "Condividi" → "Aggiungi alla schermata Home"
-   - L'app funzionerà come un'app nativa!
-
-> ⚠️ **Nota**: Il free tier di Render mette in pausa l'app dopo 15 min di inattività. Il primo accesso dopo la pausa può richiedere 30-60 secondi.
+Questa guida spiega come deployare FinanzaPersonale su Render con Neon
+(Postgres) come database esterno gratuito. Non serve il disco a pagamento
+di Render: i dati persistono nel database cloud.
 
 ---
 
-## Opzione 2: Railway.app (Più veloce, credito gratuito)
+## 1. Crea il database Neon (Postgres free tier)
 
-1. **Crea un account** su [railway.app](https://railway.app)
+1. Vai su [neon.tech](https://neon.tech) e registrati gratis (login con
+   GitHub/Google o email).
+2. Crea un nuovo progetto: `New Project`
+   - **Name**: `finanza-personale`
+   - **Postgres version**: 16 (default va bene)
+   - **Region**: scegli la stessa regione del servizio Render (es. `Frankfurt (eu-central-1)` per `Frankfurt`).
+3. Dopo la creazione, copia la **Connection String** mostrata (formato:
+   `postgresql://user:pass@ep-xxx-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require`).
+   - Usa la versione **pooled** se disponibile (URL contiene `-pooler`).
 
-2. **Deploy diretto**:
-   ```bash
-   npm install -g @railway/cli
-   railway login
-   railway init
-   railway up
-   ```
-
-3. **Variabili d'ambiente**:
-   - `SESSION_SECRET` = stringa sicura
-   - `PORT` = `${{RAILWAY_PORT}}` (viene impostato automaticamente)
-
-4. **Ottieni l'URL**: Railway fornisce un URL HTTPS automatico.
+> Free tier Neon: 0.5 GB storage, scaling-to-zero. Per un'app di finanza
+> personale è ampiamente sufficiente.
 
 ---
 
-## Opzione 3: Cloudflare Tunnel (Il PC deve essere acceso)
+## 2. Deploy su Render
 
-Se vuoi mantenere i dati solo sul tuo PC ma accedere da remoto:
+1. Crea un account su [render.com](https://render.com) e collega il tuo
+   repository GitHub/GitLab.
+2. **New +** → **Web Service** → seleziona il repo `personal-finance-app`.
+3. Render rileverà automaticamente `render.yaml` e proporrà la
+   configurazione corretta (runtime Docker, plan free, env vars).
+4. **Configura le variabili d'ambiente** (Render → Environment):
+   - `DATABASE_URL` = (la connection string Neon copiata sopra)
+   - `SESSION_SECRET` = (Render la genera automaticamente — lasciala così)
+   - `NODE_ENV` = `production` (impostata da render.yaml)
+   - `PORT` = `10000` (impostata da render.yaml)
+5. Clicca **Create Web Service**. Render builda il container Docker e
+   avvia il servizio.
+6. Al primo boot, lo script `db/migrate.js` esegue le migrazioni
+   (idempotenti) e crea le tabelle su Neon.
 
-1. **Installa cloudflared**:
-   ```bash
-   # Windows
-   winget install Cloudflare.cloudflared
-   ```
-
-2. **Crea il tunnel**:
-   ```bash
-   cloudflared tunnel login
-   cloudflared tunnel create finanza
-   cloudflared tunnel route dns finanza finanza.TUO-DOMINIO.com
-   ```
-
-3. **Avvia**:
-   ```bash
-   # Avvia il server
-   node backend/server.js
-
-   # In un altro terminale, avvia il tunnel
-   cloudflared tunnel run --url http://localhost:8080 finanza
-   ```
-
-> ⚠️ Questa opzione richiede che il PC sia acceso e il tunnel attivo.
+> **Importante**: NON serve il blocco `disk:` in `render.yaml`. È già stato
+> rimosso. Non attivare il disco a pagamento.
 
 ---
 
-## Opzione 4: Fly.io (Ottima performance, free tier)
+## 3. Sviluppo in locale
 
-1. **Installa flyctl**:
+In locale puoi usare la stessa istanza Neon (è gratis e l'auto-suspend non
+costa niente), oppure un Postgres locale.
+
+1. Crea un file `.env` nella root del progetto:
+   ```
+   DATABASE_URL=postgresql://user:pass@ep-xxx-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require
+   SESSION_SECRET=una-stringa-casuale-lunga-min-32-caratteri
+   PORT=8080
+   ```
+2. Carica le variabili (PowerShell):
+   ```powershell
+   $env:DATABASE_URL = "postgresql://..."
+   $env:SESSION_SECRET = "una-stringa-casuale"
+   ```
+   oppure con `cross-env` o `dotenv-cli`.
+3. Installa le dipendenze e avvia:
    ```bash
-   # Windows
-   powershell -Command "iwr https://fly.io/install.ps1 -useb | iex"
+   npm install
+   node db/migrate.js   # facoltativo: il server le esegue al boot
+   npm run dev
    ```
+4. Apri `http://localhost:8080`.
 
-2. **Crea un `fly.toml`** nella root del progetto:
-   ```toml
-   app = "finanza-personale"
-   primary_region = "cdg"
-
-   [http_service]
-     internal_port = 8080
-     force_https = true
-
-   [build]
-     builder = "heroku/builder:22"
-
-   [env]
-     PORT = "8080"
-   ```
-
-3. **Deploy**:
-   ```bash
-   fly auth login
-   fly launch
-   fly secrets set SESSION_SECRET=$(openssl rand -hex 32)
-   fly deploy
-   ```
+> Nota: il driver `@neondatabase/serverless` parla con Neon via HTTPS, non
+> aprendo socket TCP. Funziona quindi anche da reti restrittive e da
+> ambienti serverless.
 
 ---
 
-## Dopo il Deploy: Configurazione iPhone
+## 4. Verifica post-deploy
 
-1. **Apri Safari** sul tuo iPhone
-2. **Vai all'URL** del tuo deployment (es. `https://finanza-personale.onrender.com`)
-3. **Tocca l'icona di condivisione** (quadrato con freccia verso l'alto)
-4. **Scorri e seleziona** "Aggiungi alla schermata Home"
-5. **Conferma** il nome e tocca "Aggiungi"
-
-L'app apparirà sulla schermata home come un'app nativa, con:
-- ✅ Schermo intero (niente barra di Safari)
-- ✅ Icona dedicata
-- ✅ Funzionamento offline tramite Service Worker
-- ✅ Sincronizzazione dati quando online
+1. Apri l'URL Render (es. `https://finanza-personale.onrender.com`).
+2. Crea un account.
+3. Apri la stessa URL da un altro dispositivo (telefono), accedi con le
+   stesse credenziali → vedi i dati sincronizzati.
+4. Se vuoi forzare un restart del server (Render → Manual Deploy →
+   Clear build cache & deploy): i dati DEVONO rimanere — questo è il
+   test principale dell'utilizzo del DB esterno.
 
 ---
 
 ## Sicurezza
 
-- Usa **SEMPRE** un `SESSION_SECRET` diverso in produzione
-- I dati sono salvati nel filesystem del server (directory `backend/data/`)
-- Il repository GitHub dovrebbe essere **PRIVATO**
-- Aggiungi `backend/data/` al `.gitignore` per non committare dati sensibili
-- L'app usa HTTPS automaticamente su tutte le piattaforme cloud
+- `SESSION_SECRET` è **obbligatorio in produzione**. Render lo genera
+  automaticamente; non rivelarlo.
+- `DATABASE_URL` contiene la password Postgres: tienila riservata, mai
+  committarla.
+- Cookie di sessione: `HttpOnly`, `Secure`, `SameSite=None` su HTTPS,
+  Max-Age 30 giorni.
+- Password account/profilo: hash pbkdf2-sha256 ≥120000 iterazioni con salt
+  per record.
+- CSRF token ruotato su ogni operazione sensibile.
+
+---
+
+## Aggiornare l'app
+
+`git push origin main` → Render rebuilda e ridistribuisce automaticamente.
+Le migrazioni sono idempotenti, quindi è sicuro fare deploy ripetuti.

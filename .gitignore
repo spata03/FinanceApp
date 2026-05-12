@@ -1,2 +1,5 @@
 backend/data/
+backend/data/*.db
 node_modules/
+.env
+.env.local

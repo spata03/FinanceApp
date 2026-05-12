@@ -1,26 +1,17 @@
 FROM node:20-slim
 
-# Install build tools as fallback for native addon compilation
-RUN apt-get update && \
-    apt-get install -y python3 make g++ && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
-# Install dependencies
-COPY package.json package-lock.json ./
-RUN npm ci
+# Install only production dependencies. No native addons required —
+# @neondatabase/serverless is pure JS over HTTPS.
+COPY package.json package-lock.json* ./
+RUN npm install --omit=dev
 
-# Copy backend code
+# Copy backend, api, db, and frontend layers
 COPY backend ./backend
-
-# Copy frontend static files (served directly by the backend)
-COPY index.html ./
-COPY src ./src
-COPY assets ./assets
-COPY sw.js ./
-COPY manifest.webmanifest ./
+COPY api ./api
+COPY db ./db
+COPY frontend ./frontend
 
 EXPOSE 10000
 

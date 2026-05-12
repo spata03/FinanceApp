@@ -156,6 +156,13 @@ function navigateTo(page) {
     ensureAppShell();
   }
 
+  // Toggle fullscreen-route class on <html> so that the #app grid
+  // (sidebar | content) does not affect the full-screen layout used by
+  // accounts/profiles. CSS rule: html.fullscreen-route #app { display: block; }
+  if (document && document.documentElement) {
+    document.documentElement.classList.toggle('fullscreen-route', hasNoSidebar);
+  }
+
   // Mostra/nascondi sidebar e main-content
   const sidebar = document.getElementById('sidebar');
   const mainContent = document.getElementById('main-content');

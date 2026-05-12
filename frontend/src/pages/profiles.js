@@ -29,10 +29,28 @@ export async function renderProfilesPage(container) {
     return;
   }
 
-  const profiles = listProfilesForAccount(account.id);
+  const allProfiles = listProfilesForAccount(account.id);
+  const lastProfileId = account.lastProfileId || null;
 
-  el.innerHTML = buildProfilesHtml(account, profiles);
+  // Reorder so the last-used profile appears first.
+  const profiles = lastProfileId
+    ? [
+        ...allProfiles.filter(p => p.id === lastProfileId),
+        ...allProfiles.filter(p => p.id !== lastProfileId),
+      ]
+    : allProfiles;
+
+  el.innerHTML = buildProfilesHtml(account, profiles, lastProfileId);
   setupProfilesPageEvents(el, account.id, profiles);
+
+  // Auto-open the password modal on the last-used profile so the user
+  // only needs to type the profile password to enter the app.
+  if (lastProfileId) {
+    const lastProfile = profiles.find(p => p.id === lastProfileId);
+    if (lastProfile) {
+      openLoginModal(el, lastProfile);
+    }
+  }
 }
 
 // ── Render helpers ─────────────────────────────────────────────────────────────
@@ -41,7 +59,7 @@ function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function buildProfilesHtml(account, profiles) {
+function buildProfilesHtml(account, profiles, lastProfileId) {
   return `
     <div class="page page-profiles">
       <header class="profiles-header">
@@ -50,7 +68,7 @@ function buildProfilesHtml(account, profiles) {
       </header>
 
       <main class="profiles-main">
-        ${profiles.length === 0 ? renderNoProfiles() : renderProfilesList(profiles)}
+        ${profiles.length === 0 ? renderNoProfiles() : renderProfilesList(profiles, lastProfileId)}
       </main>
 
       <footer class="profiles-footer">
@@ -124,18 +142,22 @@ function renderNoProfiles() {
   `;
 }
 
-function renderProfilesList(profiles) {
+function renderProfilesList(profiles, lastProfileId) {
   return `
     <div class="profiles-grid">
-      ${profiles.map(p => `
-        <div class="profile-card">
+      ${profiles.map(p => {
+        const isLast = lastProfileId && p.id === lastProfileId;
+        return `
+        <div class="profile-card${isLast ? ' profile-card--last-used' : ''}">
           <button class="profile-btn" type="button" data-select-profile="${escapeHtml(p.id)}">
             <span class="account-avatar account-avatar--xl" aria-hidden="true">${escapeHtml(initials(p.username))}</span>
             <span class="profile-name">${escapeHtml(p.username)}</span>
             <span style="font-size:0.7rem;color:var(--clr-text-subtle);">${escapeHtml(p.currency)} • ${escapeHtml(p.locale)}</span>
+            ${isLast ? '<span class="profile-badge" aria-label="Ultimo usato">Ultimo usato</span>' : ''}
           </button>
         </div>
-      `).join('')}
+      `;
+      }).join('')}
     </div>
   `;
 }

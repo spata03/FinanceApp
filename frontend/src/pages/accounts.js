@@ -44,7 +44,8 @@ function escapeHtml(str) {
 
 function renderRegisterForm() {
   return `
-    <div class="page page-accounts page-accounts--centered">
+    <div class="page page-accounts">
+      <div class="page-accounts__inner">
       <div class="auth-card" id="account-form-card">
         <div class="auth-card__icon" aria-hidden="true">👤</div>
         <h1>Crea il tuo account</h1>
@@ -94,13 +95,15 @@ function renderRegisterForm() {
           Hai già un account? <button class="btn btn--ghost btn--inline" id="switch-to-login-btn" type="button">Accedi</button>
         </p>
       </div>
+      </div>
     </div>
   `;
 }
 
 function renderLoginForm(cachedAccount) {
   return `
-    <div class="page page-accounts page-accounts--centered">
+    <div class="page page-accounts">
+      <div class="page-accounts__inner">
       <div class="auth-card" id="account-form-card">
         <div class="auth-card__icon" aria-hidden="true">👤</div>
         <h1>Bentornato</h1>
@@ -124,6 +127,7 @@ function renderLoginForm(cachedAccount) {
         <p style="margin-top: var(--sp-3); text-align: center; font-size: 0.875rem;">
           Nuovo utente? <button class="btn btn--ghost btn--inline" id="switch-to-register-btn" type="button">Crea account</button>
         </p>
+      </div>
       </div>
     </div>
   `;

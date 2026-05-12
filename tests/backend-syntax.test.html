@@ -6,49 +6,14 @@
   </head>
   <body>
     <pre id="results">Running...</pre>
-    <script>
+    <script type="module">
+      // The backend is now an ES module under api/*.controller.js.
+      // We only need to verify that the pure assistant-reply logic still
+      // runs (its module has no DB dependency).
       const results = document.getElementById('results');
-
       try {
-        const request = new XMLHttpRequest();
-        request.open('GET', '../backend/server.js', false);
-        request.send();
-        if (request.status !== 200) throw new Error(`HTTP ${request.status}`);
-        new Function(request.responseText);
-
-        const fakePath = {
-          resolve: (...parts) => parts.join('/').replace(/\/+/g, '/'),
-          join: (...parts) => parts.join('/').replace(/\/+/g, '/'),
-          extname: file => (String(file).match(/\.[^./]+$/) || [''])[0],
-          relative: (parent, child) => child.startsWith(parent)
-            ? child.slice(parent.length).replace(/^\/+/, '')
-            : `../${child}`,
-          isAbsolute: value => String(value).startsWith('/'),
-        };
-        const fakeCrypto = {
-          randomBytes: () => ({ toString: () => 'a'.repeat(64) }),
-          createHmac: () => ({ update() { return this; }, digest: () => 'b'.repeat(64) }),
-          createHash: () => ({ update() { return this; }, digest: () => 'c'.repeat(64) }),
-          timingSafeEqual: () => true,
-        };
-        const fakeRequire = name => {
-          if (name === 'node:http') return { createServer: () => ({ listen() {} }) };
-          if (name === 'node:fs/promises') return {};
-          if (name === 'node:path') return fakePath;
-          if (name === 'node:crypto') return fakeCrypto;
-          throw new Error(`Unexpected require ${name}`);
-        };
-        const module = { exports: {} };
-        new Function('require', 'module', 'exports', '__dirname', 'process', 'console', request.responseText)(
-          fakeRequire,
-          module,
-          module.exports,
-          '/repo/backend',
-          { env: {} },
-          console
-        );
-
-        const reply = module.exports.buildAssistantReply('Come sto andando?', {
+        const mod = await import('../api/assistant.controller.js');
+        const reply = mod.buildAssistantReply('Come sto andando?', {
           settings: { currency: 'EUR', locale: 'it-IT' },
           recurringEntries: [
             { type: 'income', amount: 1000, active: true },
@@ -62,9 +27,8 @@
         });
         if (!reply.includes('Analisi AI backend')) throw new Error('assistant backend reply missing');
         if (!reply.includes('Entrate fisse')) throw new Error('assistant backend fixed income missing');
-
         results.textContent = [
-          'PASS backend/server.js parses as JavaScript',
+          'PASS api/assistant.controller.js parses as ESM',
           'PASS backend assistant logic returns a reply',
         ].join('\n');
       } catch (error) {

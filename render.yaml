@@ -10,7 +10,9 @@ services:
         generateValue: true
       - key: PORT
         value: 10000
-    disk:
-      name: finanza-data
-      mountPath: /app/backend/data
-      sizeGB: 1
+      # Neon Postgres connection string. Create a free project at
+      # https://neon.tech, then paste the connection URL here in the
+      # Render dashboard. Marked sync: false so it is set via the UI
+      # and not committed to git.
+      - key: DATABASE_URL
+        sync: false

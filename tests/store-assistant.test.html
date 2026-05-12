@@ -60,9 +60,9 @@
       }));
     </script>
     <script type="module">
-      import { store } from '../src/data/store.js';
-      import { buildAssistantReply } from '../src/utils/assistant.js';
-      import { calcMonthlyOverview } from '../src/utils/calculations.js';
+      import { store } from '../frontend/src/data/store.js';
+      import { buildAssistantReply } from '../frontend/src/utils/assistant.js';
+      import { calcMonthlyOverview } from '../frontend/src/utils/calculations.js';
 
       const results = document.getElementById('results');
       const key = window.__testStorageKey;
@@ -97,7 +97,7 @@
           }],
           settings: { currency: 'EUR' },
         }));
-        const legacyModule = await import(`../src/data/store.js?legacy=${Date.now()}`);
+        const legacyModule = await import(`../frontend/src/data/store.js?legacy=${Date.now()}`);
         const legacyStore = legacyModule.store;
         assert(legacyStore.getRecurringEntries({ type: 'expense' }).length === 1, 'legacy recurring expenses migrate to recurring entries');
         assert(legacyStore.getRecurringExpenses()[0].type === 'expense', 'legacy recurring expenses keep expense type');
@@ -228,7 +228,7 @@
             meta: { schemaVersion: 3, updatedAt: '2025-01-01T00:00:00.000Z' },
           },
         };
-        const syncModule = await import(`../src/data/store.js?sync=${Date.now()}`);
+        const syncModule = await import(`../frontend/src/data/store.js?sync=${Date.now()}`);
         const syncStore = syncModule.store;
         const syncResult = await syncStore.syncWithBackend();
         assert(syncResult.direction === 'pull', 'store pulls newer backend state');
