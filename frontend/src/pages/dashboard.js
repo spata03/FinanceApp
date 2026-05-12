@@ -4,7 +4,7 @@
 
 import { store } from '../data/store.js';
 import { formatCurrency, formatDate, formatMonthYear, formatSignedCurrency } from '../utils/formatters.js';
-import { calcBalance, groupByMonth, percentChange } from '../utils/calculations.js';
+import { calcBalance, calcMonthlyOverview, groupByMonth, percentChange } from '../utils/calculations.js';
 import { getCategoryInfo } from '../data/categories.js';
 import { openTransactionModal } from '../components/TransactionModal.js';
 import { escapeHTML } from '../utils/helpers.js';
@@ -23,12 +23,16 @@ export function renderDashboard(container) {
     const settings  = store.getSettings() || {};
     const txMonth   = store.getTransactions({ month, year }) || [];
     const { income, expense, balance } = calcBalance(txMonth);
+    const monthOverview     = calcMonthlyOverview(txMonth);
+    const operatingExpenses = monthOverview.operatingExpenses;
+    const monthlySavings    = monthOverview.savings;
 
     // Dati mese precedente (per delta %)
     const prevMonth = month === 0 ? 11 : month - 1;
     const prevYear  = month === 0 ? year - 1 : year;
     const txPrev    = store.getTransactions({ month: prevMonth, year: prevYear }) || [];
     const prev      = calcBalance(txPrev);
+    const prevOverview = calcMonthlyOverview(txPrev);
 
     // Risparmio totale accumulato (tutti i periodi)
     const totalBalance = calcBalance(txAll);
@@ -48,10 +52,23 @@ export function renderDashboard(container) {
       <!-- KPI cards -->
       <div class="grid-4" style="margin-bottom:2rem;">
         ${kpiCard('income',  '📈', 'Entrate mese',  income,  prev.income,  formatCurrency(income))}
-        ${kpiCard('expense', '📉', 'Spese mese',    expense, prev.expense, formatCurrency(expense))}
+        ${kpiCard('expense', '📉', 'Spese mese', operatingExpenses, prevOverview.operatingExpenses, formatCurrency(operatingExpenses))}
         ${kpiCard('savings', '💰', 'Saldo mese',    balance, prev.balance, formatSignedCurrency(balance))}
         ${kpiCard('balance', '🏦', 'Patrimonio tot.',totalBalance.balance, null, formatCurrency(totalBalance.balance))}
       </div>
+
+      <!-- Risparmio del mese – sezione dedicata -->
+      <section class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap;">
+        <div>
+          <p class="card__title" style="margin-bottom:.5rem;">🐷 Risparmio — mese corrente</p>
+          <p style="font-size:1.75rem;font-weight:700;color:var(--clr-savings);">${formatCurrency(monthlySavings)}</p>
+          ${monthlySavings > 0
+            ? `<p style="font-size:.85rem;color:var(--clr-text-muted);margin-top:.25rem;">Accantonato questo mese</p>`
+            : `<p style="font-size:.85rem;color:var(--clr-text-muted);margin-top:.25rem;">Nessun versamento questo mese</p>`
+          }
+        </div>
+        <button class="btn btn--outline" style="margin-left:auto;" onclick="window.location.hash='salvadanaio'">Vedi salvadanaio →</button>
+      </section>
 
       <!-- Trend + Recent -->
       <div class="grid-2" style="margin-bottom:2rem;">

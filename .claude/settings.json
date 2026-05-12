@@ -57,7 +57,15 @@
       "Bash(node -e \"import\\('./db/migrate.js'\\).then\\(async \\(m\\) => { const fs = await import\\('node:fs/promises'\\); const c = await fs.readFile\\('./db/migrations/001-initial.sql','utf8'\\); const stmts = m.splitSqlStatements\\(c\\); console.log\\('count:', stmts.length\\); stmts.forEach\\(\\(s,i\\) => console.log\\('===',i,'===\\\\n',s.slice\\(0,80\\).replace\\(/\\\\n/g, ' '\\)\\)\\); }\\)\")",
       "Bash(node -e \"import\\('./db/migrate.js'\\).then\\(async \\(m\\) => { const fs = await import\\('node:fs/promises'\\); const c = await fs.readFile\\('./db/migrations/001-initial.sql','utf8'\\); const stmts = m.splitSqlStatements\\(c\\); console.log\\('=== STMT 0 ===\\\\n' + stmts[0]\\); console.log\\('=== STMT 2 ===\\\\n' + stmts[2]\\); }\\)\")",
       "Bash(grep -n \"END\\\\$\\\\$\\\\|^DO \" db/migrations/001-initial.sql)",
-      "Bash(node --input-type=module -e \"import\\('./api/assistant.controller.js'\\).then\\(m => { const r = m.buildAssistantReply\\('Come va?', {settings:{currency:'EUR',locale:'it-IT'}, transactions:[{type:'income',amount:1000,source:'monthly',category:'stipendio',date:new Date\\(\\).toISOString\\(\\).split\\('T'\\)[0]},{type:'expense',amount:100,source:'monthly',category:'cibo',date:new Date\\(\\).toISOString\\(\\).split\\('T'\\)[0]}], recurringEntries:[{type:'income',amount:1000,active:true}], recurringExpenses:[{amount:100,active:true}]}\\); console.log\\(r.includes\\('Analisi AI backend'\\) ? 'PASS' : 'FAIL: missing header'\\); console.log\\(r.split\\('\\\\\\\\n'\\).slice\\(0,3\\).join\\('\\\\\\\\n'\\)\\); }\\)\")"
+      "Bash(node --input-type=module -e \"import\\('./api/assistant.controller.js'\\).then\\(m => { const r = m.buildAssistantReply\\('Come va?', {settings:{currency:'EUR',locale:'it-IT'}, transactions:[{type:'income',amount:1000,source:'monthly',category:'stipendio',date:new Date\\(\\).toISOString\\(\\).split\\('T'\\)[0]},{type:'expense',amount:100,source:'monthly',category:'cibo',date:new Date\\(\\).toISOString\\(\\).split\\('T'\\)[0]}], recurringEntries:[{type:'income',amount:1000,active:true}], recurringExpenses:[{amount:100,active:true}]}\\); console.log\\(r.includes\\('Analisi AI backend'\\) ? 'PASS' : 'FAIL: missing header'\\); console.log\\(r.split\\('\\\\\\\\n'\\).slice\\(0,3\\).join\\('\\\\\\\\n'\\)\\); }\\)\")",
+      "Bash(npx neonctl@latest init)",
+      "Bash(cat \"C:\\\\Users\\\\Andrea Spataro\\\\.claude\\\\settings.json\" 2>/dev/null || echo \"FILE_NOT_FOUND\")",
+      "Read(//c/Users/Andrea Spataro/.claude/**)",
+      "Bash(npx neonctl@latest init --help)",
+      "Bash(npx neonctl@latest api-keys create --name \"claude-code-mcp\" -o json)",
+      "Bash(npx neonctl@latest --help)",
+      "Bash(npx neonctl@latest init --agent code)",
+      "Bash(npx neonctl@latest init --agent claude)"
     ]
   },
   "agent": "orchestrator"
