@@ -85,7 +85,12 @@
       "Bash(node --check frontend/src/pages/accounts.js)",
       "Bash(node --check db/migrate.js)",
       "Bash(npx neonctl@latest connection-string)",
-      "Bash(DATABASE_URL=\"postgresql://neondb_owner:npg_nxcPOb7hum3f@ep-crimson-bird-algmf1t2.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require\" node db/migrate.js)"
+      "Bash(DATABASE_URL=\"postgresql://neondb_owner:npg_nxcPOb7hum3f@ep-crimson-bird-algmf1t2.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require\" node db/migrate.js)",
+      "Bash(DATABASE_URL='postgresql://neondb_owner:npg_nxcPOb7hum3f@ep-crimson-bird-algmf1t2.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require' node --input-type=module -e ' *)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(node --check \"c:\\\\Users\\\\Andrea Spataro\\\\.gemini\\\\antigravity\\\\scratch\\\\personal-finance-app\\\\frontend\\\\src\\\\pages\\\\profiles.js\")",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(node --check \"c:\\\\Users\\\\Andrea Spataro\\\\.gemini\\\\antigravity\\\\scratch\\\\personal-finance-app\\\\db\\\\repositories\\\\sessions.repo.js\")"
     ]
   },
   "agent": "orchestrator"

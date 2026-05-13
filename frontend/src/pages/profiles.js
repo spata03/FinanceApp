@@ -67,9 +67,73 @@ export async function renderProfilesPage(container) {
   if (!currentProfile && lastProfileId) {
     const lastProfile = profiles.find(p => p.id === lastProfileId);
     if (lastProfile) {
-      openLoginModal(el, lastProfile);
+      await tryProfileUnlock(el, account.id, lastProfileId, lastProfile);
     }
   }
+}
+
+// ── Trust-token unlock (shared by auto-open path and button-click handler) ────
+
+/**
+ * Try to unlock a profile without a password by checking stored trust tokens.
+ * Falls back to the password modal when both token paths fail or are absent.
+ *
+ * @param {Element}      el        - Root container element for the page
+ * @param {string}       accountId
+ * @param {string}       profileId
+ * @param {object}       profile   - Full profile object
+ * @param {Element|null} btn       - The clicked button (optional; null on auto-open)
+ */
+async function tryProfileUnlock(el, accountId, profileId, profile, btn = null) {
+  // First attempt: per-profile device-trust token.
+  const trustedToken = getDeviceTrustToken(accountId, profileId);
+  if (trustedToken) {
+    if (btn) btn.disabled = true;
+    try {
+      await ensureBackendSession().catch(() => null);
+      await selectProfile(profileId, { deviceTrustToken: trustedToken });
+      store.reloadFromStorage();
+      refreshUserMenu();
+      store.syncWithBackend().catch(() => null);
+      window.location.hash = '#/dashboard';
+      return;
+    } catch (err) {
+      // Token rejected (401/403) or other failure → clear and fall back.
+      if (err && (err.status === 401 || err.status === 403)) {
+        clearDeviceTrustForProfile(accountId, profileId);
+      }
+      console.warn('[profiles] device-trust unlock failed:', err?.message || err);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // Second attempt: account-level trust token (covers every profile of the
+  // same account on this device, so switching profile after login is
+  // password-less). Falls back to the modal on any failure.
+  const accountToken = getAccountTrustToken(accountId);
+  if (accountToken) {
+    if (btn) btn.disabled = true;
+    try {
+      await ensureBackendSession().catch(() => null);
+      await selectProfile(profileId, { accountTrustToken: accountToken });
+      store.reloadFromStorage();
+      refreshUserMenu();
+      store.syncWithBackend().catch(() => null);
+      window.location.hash = '#/dashboard';
+      return;
+    } catch (err) {
+      if (err && (err.status === 401 || err.status === 403)) {
+        clearAccountTrustToken(accountId);
+      }
+      console.warn('[profiles] account-trust unlock failed:', err?.message || err);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // Both token paths exhausted — show password modal.
+  openLoginModal(el, profile);
 }
 
 // ── Render helpers ─────────────────────────────────────────────────────────────
@@ -208,57 +272,7 @@ function setupProfilesPageEvents(el, accountId, profiles) {
       const profile = profiles.find(p => p.id === profileId);
       if (!profile) return;
 
-      // If we have a saved device-trust token for this profile, try the
-      // password-less unlock path first. On any failure (stale/revoked token,
-      // CSRF, network) we drop the token and fall back to the password modal
-      // so the user is never stuck.
-      const trustedToken = getDeviceTrustToken(accountId, profileId);
-      if (trustedToken) {
-        btn.disabled = true;
-        try {
-          await ensureBackendSession().catch(() => null);
-          await selectProfile(profileId, { deviceTrustToken: trustedToken });
-          store.reloadFromStorage();
-          refreshUserMenu();
-          store.syncWithBackend().catch(() => null);
-          window.location.hash = '#/dashboard';
-          return;
-        } catch (err) {
-          // Token rejected (401/403) or other failure → clear and fall back.
-          if (err && (err.status === 401 || err.status === 403)) {
-            clearDeviceTrustForProfile(accountId, profileId);
-          }
-          console.warn('[profiles] device-trust unlock failed:', err?.message || err);
-        } finally {
-          btn.disabled = false;
-        }
-      }
-
-      // Second attempt: account-level trust token (covers every profile of the
-      // same account on this device, so switching profile after login is
-      // password-less). Falls back to the modal on any failure.
-      const accountToken = getAccountTrustToken(accountId);
-      if (accountToken) {
-        btn.disabled = true;
-        try {
-          await ensureBackendSession().catch(() => null);
-          await selectProfile(profileId, { accountTrustToken: accountToken });
-          store.reloadFromStorage();
-          refreshUserMenu();
-          store.syncWithBackend().catch(() => null);
-          window.location.hash = '#/dashboard';
-          return;
-        } catch (err) {
-          if (err && (err.status === 401 || err.status === 403)) {
-            clearAccountTrustToken(accountId);
-          }
-          console.warn('[profiles] account-trust unlock failed:', err?.message || err);
-        } finally {
-          btn.disabled = false;
-        }
-      }
-
-      openLoginModal(el, profile);
+      await tryProfileUnlock(el, accountId, profileId, profile, btn);
     });
   });
 

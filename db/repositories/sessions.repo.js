@@ -59,7 +59,14 @@ export async function updateSession(id, data) {
 
 export async function updateSessionLastSeen(id) {
   const sql = getSql();
-  await sql`UPDATE sessions SET last_seen_at = ${Date.now()} WHERE id = ${id}`;
+  const now = Date.now();
+  const slidingExpiry = now + 30 * 24 * 60 * 60 * 1000; // match createSession TTL
+  await sql`
+    UPDATE sessions
+    SET last_seen_at = ${now},
+        expires_at   = GREATEST(expires_at, ${slidingExpiry})
+    WHERE id = ${id}
+  `;
 }
 
 export async function deleteSession(id) {
