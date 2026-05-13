@@ -25,6 +25,14 @@ function profileInitials(name = '') {
 }
 
 function renderWidget(root) {
+  // Clean up any document-level listener attached by the previous render of
+  // this same root so we never leak outside-click handlers when re-rendering
+  // (e.g. after a profile switch).
+  if (typeof root._closeOnOutside === 'function') {
+    document.removeEventListener('click', root._closeOnOutside);
+    root._closeOnOutside = null;
+  }
+
   const account = getActiveAccount();
   const profile = getActiveProfile();
 
@@ -74,8 +82,11 @@ function renderWidget(root) {
     if (!root.contains(event.target)) {
       setOpen(false);
       document.removeEventListener('click', closeOnOutside);
+      if (root._closeOnOutside === closeOnOutside) root._closeOnOutside = null;
     }
   };
+  // Track so the next render can remove this listener even if it is still bound.
+  root._closeOnOutside = closeOnOutside;
 
   button.addEventListener('click', (event) => {
     event.stopPropagation();
@@ -92,11 +103,20 @@ function renderWidget(root) {
     actionBtn.addEventListener('click', async () => {
       setOpen(false);
       document.removeEventListener('click', closeOnOutside);
+      if (root._closeOnOutside === closeOnOutside) root._closeOnOutside = null;
 
       const type = actionBtn.dataset.accountAction;
 
       if (type === 'change-profile') {
-        window.location.hash = '#/profiles';
+        // If we're already on #/profiles the hash assignment below is a no-op
+        // and `hashchange` does not fire, so the page would never re-render.
+        // Force a re-render by dispatching the event manually in that case.
+        const target = '#/profiles';
+        if (window.location.hash === target || window.location.hash.startsWith('#/profiles')) {
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        } else {
+          window.location.hash = target;
+        }
         return;
       }
 
@@ -107,6 +127,8 @@ function renderWidget(root) {
         } catch (e) {
           console.warn('[UserMenu] Logout error:', e.message);
         }
+        // Refresh the widget so the unauthenticated state shows immediately.
+        refreshUserMenu();
         window.location.hash = '#/accounts';
       }
     });
@@ -119,6 +141,20 @@ export function setupUserMenu() {
     root = document.createElement('div');
     root.id = ACCOUNT_ROOT_ID;
     document.body.appendChild(root);
+  }
+  renderWidget(root);
+}
+
+/**
+ * Re-render the user-menu widget so it picks up the current active profile.
+ * Safe to call from anywhere; falls back to `setupUserMenu` if the root is
+ * missing.
+ */
+export function refreshUserMenu() {
+  const root = document.getElementById(ACCOUNT_ROOT_ID);
+  if (!root) {
+    setupUserMenu();
+    return;
   }
   renderWidget(root);
 }

@@ -4,6 +4,8 @@
  * All handlers are async (require Postgres I/O).
  */
 
+import crypto from 'node:crypto';
+
 import { sendJson } from '../backend/middleware/errors.js';
 import { getOrCreateSession, parseCookies, verifySessionCookie, clearCookieHeader } from '../backend/middleware/session.js';
 import { assertCsrf } from '../backend/middleware/csrf.js';
@@ -14,6 +16,14 @@ import { generateId, normalizeEmail } from './_helpers.js';
 import * as accountsRepo from '../db/repositories/accounts.repo.js';
 import * as profilesRepo from '../db/repositories/profiles.repo.js';
 import * as sessionsRepo from '../db/repositories/sessions.repo.js';
+import * as deviceTrustRepo from '../db/repositories/deviceTrust.repo.js';
+
+// Trusted-device tokens are valid for 90 days from creation.
+const DEVICE_TRUST_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+function sha256Hex(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
 
 const { allowedCurrencies, allowedLocales, sessionCookieName } = config;
 
@@ -136,7 +146,9 @@ export async function selectProfile(req, res) {
   }
   const body = await readBody(req);
   const profileId = String(body.profileId || '').trim();
-  const password = String(body.password || '');
+  const password = typeof body.password === 'string' ? body.password : '';
+  const deviceTrustToken = typeof body.deviceTrustToken === 'string' ? body.deviceTrustToken.trim() : '';
+  const wantsTrust = body.trustDevice === true;
 
   const profile = await profilesRepo.getProfile(profileId);
   if (!profile) {
@@ -147,9 +159,28 @@ export async function selectProfile(req, res) {
     sendJson(res, 403, { error: 'Accesso negato.' });
     return;
   }
-  if (!accountsRepo.verifyPassword(password, profile)) {
-    sendJson(res, 401, { error: 'Password profilo non corretta.' });
-    return;
+
+  // Path A: client supplied a device-trust token — try a password-less unlock.
+  // On any failure we deliberately return the same 401 the password path uses
+  // so callers cannot tell whether the token or the password was the issue.
+  let trustedRow = null;
+  if (deviceTrustToken) {
+    const tokenHash = sha256Hex(deviceTrustToken);
+    trustedRow = await deviceTrustRepo.findActiveTrust({
+      accountId: session.account_id,
+      profileId,
+      tokenHash,
+    });
+    if (!trustedRow) {
+      sendJson(res, 401, { error: 'Password profilo non corretta.' });
+      return;
+    }
+  } else {
+    // Path B: classic password check.
+    if (!accountsRepo.verifyPassword(password, profile)) {
+      sendJson(res, 401, { error: 'Password profilo non corretta.' });
+      return;
+    }
   }
 
   await sessionsRepo.updateSession(session.id, { profile_id: profileId });
@@ -157,9 +188,28 @@ export async function selectProfile(req, res) {
   await accountsRepo.updateAccount(session.account_id, { lastProfileId: profileId });
   const csrfToken = await sessionsRepo.rotateCsrfToken(session.id);
 
+  let issuedTrustToken = null;
+  if (trustedRow) {
+    // Refresh "last used" for telemetry / future cleanup.
+    await deviceTrustRepo.touchTrust(trustedRow.id).catch(() => null);
+  } else if (wantsTrust) {
+    // Issue a fresh trust token after a successful password login.
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = sha256Hex(rawToken);
+    await deviceTrustRepo.createTrust({
+      id: generateId(),
+      accountId: session.account_id,
+      profileId,
+      tokenHash,
+      expiresAtMs: Date.now() + DEVICE_TRUST_TTL_MS,
+    });
+    issuedTrustToken = rawToken;
+  }
+
   sendJson(res, 200, {
     profile: { id: profile.id, username: profile.username, currency: profile.currency, locale: profile.locale, storageKey: profile.storageKey },
     csrfToken,
+    ...(issuedTrustToken ? { deviceTrustToken: issuedTrustToken } : {}),
   });
 }
 
@@ -243,6 +293,8 @@ export async function deleteProfile(req, res, ctx) {
     sendJson(res, 400, { error: 'Non puoi eliminare l\'unico profilo dell\'account.' });
     return;
   }
+  // Revoke any trusted-device tokens for this profile before destroying the row.
+  await deviceTrustRepo.revokeTrustsByProfile(profileId).catch(() => null);
   await profilesRepo.deleteProfile(profileId);
   sendJson(res, 200, { ok: true });
 }

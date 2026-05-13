@@ -21,7 +21,7 @@ import { renderProfilesPage } from './pages/profiles.js';
 import { formatMonthYear }    from './utils/formatters.js';
 import { store }              from './data/store.js';
 import { getActiveAccount, getActiveProfile, checkAndRestoreSession } from './data/auth-accounts.js';
-import { ensureAuthenticated, setupUserMenu } from './components/UserMenu.js';
+import { ensureAuthenticated, setupUserMenu, refreshUserMenu } from './components/UserMenu.js';
 
 // ── Mappa rotte ───────────────────────────────────────────────────────────────
 const ROUTES = {
@@ -293,8 +293,16 @@ function handleHashChange() {
       }
     }
   }
-  
+
   navigateTo(hash);
+
+  // Keep the account widget in sync with the current account / profile after
+  // every navigation (it caches the email + profile name from localStorage).
+  try {
+    refreshUserMenu();
+  } catch (e) {
+    console.warn('[UserMenu] refresh failed:', e?.message || e);
+  }
 }
 
 // ── Topbar mese corrente ──────────────────────────────────────────────────────

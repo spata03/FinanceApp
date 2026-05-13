@@ -19,8 +19,13 @@ import {
   assertUsername,
   assertPassword,
 } from '../data/auth-accounts.js';
+import {
+  getDeviceTrustToken,
+  clearDeviceTrustForProfile,
+} from '../data/device-trust.js';
 import { ensureBackendSession } from '../utils/backendClient.js';
 import { store } from '../data/store.js';
+import { refreshUserMenu } from '../components/UserMenu.js';
 
 export async function renderProfilesPage(container) {
   const el = container || document.getElementById('app');
@@ -45,18 +50,12 @@ export async function renderProfilesPage(container) {
   el.innerHTML = buildProfilesHtml(account, profiles, lastProfileId);
   setupProfilesPageEvents(el, account.id, profiles);
 
-  // If the currently active profile in session matches the last-used profile,
-  // skip the password modal and go straight to the dashboard.
+  // If the user has no active profile yet but had previously selected one on
+  // this device, surface the password modal directly on that profile. We do
+  // NOT auto-redirect when the active profile already matches: arriving on
+  // #/profiles is an explicit "Cambia Profilo" request and must show the grid.
   const currentProfile = getActiveProfile();
-  if (currentProfile && lastProfileId && currentProfile.id === lastProfileId) {
-    store.reloadFromStorage();
-    window.location.hash = '#/dashboard';
-    return;
-  }
-
-  // Auto-open the password modal on the last-used profile so the user
-  // only needs to type the profile password to enter the app.
-  if (lastProfileId) {
+  if (!currentProfile && lastProfileId) {
     const lastProfile = profiles.find(p => p.id === lastProfileId);
     if (lastProfile) {
       openLoginModal(el, lastProfile);
@@ -96,6 +95,12 @@ function buildProfilesHtml(account, profiles, lastProfileId) {
         <div class="form-group">
           <label class="form-label" for="profile-login-password">Password profilo</label>
           <input class="form-input" type="password" id="profile-login-password" autocomplete="current-password" />
+        </div>
+        <div class="form-group" style="display:flex; align-items:center; gap:0.5rem;">
+          <input type="checkbox" id="profile-login-trust-device" checked />
+          <label for="profile-login-trust-device" style="font-size:0.85rem; color:var(--clr-text-subtle); cursor:pointer;">
+            Ricordami su questo dispositivo
+          </label>
         </div>
         <p class="auth-error" id="profile-login-error" role="alert" style="display:none;"></p>
         <div class="form-actions">
@@ -189,10 +194,38 @@ function showError(el, id, message) {
 function setupProfilesPageEvents(el, accountId, profiles) {
   // Profile select buttons
   el.querySelectorAll('[data-select-profile]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const profileId = btn.dataset.selectProfile;
       const profile = profiles.find(p => p.id === profileId);
-      if (profile) openLoginModal(el, profile);
+      if (!profile) return;
+
+      // If we have a saved device-trust token for this profile, try the
+      // password-less unlock path first. On any failure (stale/revoked token,
+      // CSRF, network) we drop the token and fall back to the password modal
+      // so the user is never stuck.
+      const trustedToken = getDeviceTrustToken(accountId, profileId);
+      if (trustedToken) {
+        btn.disabled = true;
+        try {
+          await ensureBackendSession().catch(() => null);
+          await selectProfile(profileId, { deviceTrustToken: trustedToken });
+          store.reloadFromStorage();
+          refreshUserMenu();
+          store.syncWithBackend().catch(() => null);
+          window.location.hash = '#/dashboard';
+          return;
+        } catch (err) {
+          // Token rejected (401/403) or other failure → clear and fall back.
+          if (err && (err.status === 401 || err.status === 403)) {
+            clearDeviceTrustForProfile(accountId, profileId);
+          }
+          console.warn('[profiles] device-trust unlock failed:', err?.message || err);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      openLoginModal(el, profile);
     });
   });
 
@@ -271,6 +304,7 @@ function openCreateModal(el) {
 async function handleProfileLoginSubmit(el, modal, accountId) {
   const profileId = modal.dataset.profileId;
   const password = el.querySelector('#profile-login-password')?.value || '';
+  const trustDevice = !!el.querySelector('#profile-login-trust-device')?.checked;
   showError(el, 'profile-login-error', '');
 
   const submitBtn = el.querySelector('#profile-login-submit');
@@ -278,8 +312,9 @@ async function handleProfileLoginSubmit(el, modal, accountId) {
 
   try {
     await ensureBackendSession().catch(() => null);
-    await selectProfile(profileId, password);
+    await selectProfile(profileId, { password, trustDevice });
     store.reloadFromStorage();
+    refreshUserMenu();
     await store.syncWithBackend().catch(() => null);
     modal.style.display = 'none';
     window.location.hash = '#/dashboard';

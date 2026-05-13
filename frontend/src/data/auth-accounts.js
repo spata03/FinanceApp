@@ -18,6 +18,11 @@ import {
   getMe,
   logoutAccount as backendLogout,
 } from '../utils/backendClient.js';
+import {
+  getDeviceTrustToken,
+  setDeviceTrustToken,
+  clearDeviceTrustForProfile,
+} from './device-trust.js';
 
 // ── localStorage keys (v3 — do NOT delete v1/v2 keys) ─────────────────────────
 export const ACTIVE_ACCOUNT_KEY_V3  = 'finanza:account-v3';
@@ -179,16 +184,44 @@ export async function loginAccount({ email, password }) {
 
 /**
  * Select and authenticate a profile.
- * @param {string} profileId
- * @param {string} password
+ *
+ * Supports three call shapes (the second is kept for backward compatibility):
+ *   selectProfile(profileId, { password, trustDevice })
+ *   selectProfile(profileId, 'plaintext-password')          // legacy
+ *   selectProfile(profileId, { deviceTrustToken })          // password-less unlock
+ *
+ * When `trustDevice` is true and the password is correct, the backend returns a
+ * `deviceTrustToken` which we persist under the active account so subsequent
+ * profile switches on this device can skip the password modal.
  */
-export async function selectProfile(profileId, password) {
-  assertPassword(password);
+export async function selectProfile(profileId, optionsOrPassword) {
+  // Normalize the legacy `selectProfile(id, "password")` signature.
+  const options = typeof optionsOrPassword === 'string'
+    ? { password: optionsOrPassword }
+    : (optionsOrPassword || {});
 
-  const result = await backendSelectProfile(profileId, password);
+  const hasToken = typeof options.deviceTrustToken === 'string' && options.deviceTrustToken.length > 0;
+  if (!hasToken) {
+    // Token-less path: a password is required (and must meet the basic policy).
+    assertPassword(options.password);
+  }
+
+  const result = await backendSelectProfile(profileId, {
+    password: options.password,
+    deviceTrustToken: options.deviceTrustToken,
+    trustDevice: options.trustDevice === true,
+  });
 
   writeJson(ACTIVE_PROFILE_KEY_V3, result.profile);
   setActiveProfileId(result.profile.id);
+
+  // Persist a freshly-issued device-trust token, if any.
+  if (result && typeof result.deviceTrustToken === 'string' && result.deviceTrustToken) {
+    const account = getActiveAccount();
+    if (account && account.id) {
+      setDeviceTrustToken(account.id, result.profile.id, result.deviceTrustToken);
+    }
+  }
 
   return result;
 }
@@ -219,6 +252,9 @@ export async function createProfile(accountId, { username, password, currency = 
 export async function deleteProfile(accountId, profileId) {
   await backendDeleteProfile(profileId);
 
+  // Drop any cached device-trust token for the deleted profile.
+  if (accountId) clearDeviceTrustForProfile(accountId, profileId);
+
   // Remove from cached profiles list
   const account = getActiveAccount();
   if (account && Array.isArray(account.profiles)) {
@@ -235,6 +271,9 @@ export async function deleteProfile(accountId, profileId) {
 
   return true;
 }
+
+// Re-export device-trust helpers so call sites can stay inside auth-accounts.
+export { getDeviceTrustToken, clearDeviceTrustForProfile };
 
 /**
  * Logout — calls backend, clears localStorage v3 keys.
@@ -320,7 +359,7 @@ export async function loginProfile(accountId, { username, password }) {
   const profiles = listProfilesForAccount(accountId);
   const profile = profiles.find(p => p.username === username);
   if (!profile) throw new Error('Profilo non trovato.');
-  return selectProfile(profile.id, password);
+  return selectProfile(profile.id, { password });
 }
 
 export function setDefaultProfile(accountId, profileId) {

@@ -148,19 +148,38 @@ export async function loginAccount(email, password) {
   });
 }
 
-export async function selectProfile(profileId, password) {
+/**
+ * Select a profile on the backend.
+ *
+ * @param {string} profileId
+ * @param {{ password?: string, deviceTrustToken?: string, trustDevice?: boolean }} [options]
+ *   - `deviceTrustToken`: previously-issued token for password-less unlock.
+ *   - `password`: profile password (used when no token is supplied or after a
+ *     stale token is rejected).
+ *   - `trustDevice`: when true and a password is supplied successfully, the
+ *     server returns a `deviceTrustToken` to be persisted client-side.
+ *
+ * Returns the parsed JSON payload, which may include `deviceTrustToken`.
+ */
+export async function selectProfile(profileId, options = {}) {
+  const { password, deviceTrustToken, trustDevice } = options || {};
   return requestWithCsrfRetry(async () => {
     if (!_csrfToken) {
       const session = await ensureFreshSession();
       if (!session.available) throw new Error(session.error || 'Sessione non disponibile');
     }
+    const body = { profileId };
+    if (typeof password === 'string' && password.length > 0) body.password = password;
+    if (typeof deviceTrustToken === 'string' && deviceTrustToken) body.deviceTrustToken = deviceTrustToken;
+    if (trustDevice === true) body.trustDevice = true;
+
     const result = await requestJson('/api/auth/profile/select', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Token': _csrfToken || '',
       },
-      body: JSON.stringify({ profileId, password }),
+      body: JSON.stringify(body),
     });
     if (result.csrfToken) _csrfToken = result.csrfToken;
     return result;
