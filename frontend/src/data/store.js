@@ -649,4 +649,18 @@ export const store = {
     const _prof = getActiveProfile();
     if (_acc && _prof) queueBackendSave(_state, _acc.id, _prof.id);
   },
+
+  // ── Reload from storage (called after profile switch) ────────────────────
+  reloadFromStorage() {
+    _state = loadState(); // loadState() uses getStorageKey() which now points to the correct profile
+    const result = materializeMonthlyEntries(_state);
+    if (result.changed) {
+      _state = normalizeState({
+        ...result.state,
+        meta: { ...result.state.meta, updatedAt: new Date().toISOString() },
+      });
+      saveState(_state);
+    }
+    notifyListeners();
+  },
 };

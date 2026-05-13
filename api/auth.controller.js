@@ -112,6 +112,7 @@ export async function login(req, res) {
     currency: p.currency,
     locale: p.locale,
     isDefault: p.isDefault,
+    storageKey: p.storageKey,
   }));
 
   sendJson(res, 200, {
@@ -266,6 +267,7 @@ export async function me(req, res) {
     currency: p.currency,
     locale: p.locale,
     isDefault: p.isDefault,
+    storageKey: p.storageKey,
   }));
   const activeProfile = session.profile_id ? await profilesRepo.getProfile(session.profile_id) : null;
   sendJson(res, 200, {

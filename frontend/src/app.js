@@ -334,7 +334,7 @@ function setupMobileSidebar() {
   hamburger.className = 'btn btn--ghost';
   hamburger.setAttribute('aria-label', 'Apri menu');
   hamburger.style.cssText = `
-    position:fixed; top:1rem; left:1rem; z-index:150;
+    position:fixed; top:1rem; left:1rem; z-index:210;
     display:none; font-size:1.25rem; background:var(--clr-surface);
     border:1px solid var(--clr-border); border-radius:var(--radius-md);
     padding:0.5rem 0.75rem;
@@ -345,8 +345,8 @@ function setupMobileSidebar() {
   const overlay = document.createElement('div');
   overlay.id    = 'mobile-overlay';
   overlay.style.cssText = `
-    position:fixed; inset:0; background:rgba(0,0,0,0.6);
-    z-index:99; display:none; backdrop-filter:blur(2px);
+    position:fixed; inset:0; background:rgba(0,0,0,0.5);
+    z-index:149; display:none;
   `;
   document.body.appendChild(overlay);
 

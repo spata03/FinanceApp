@@ -10,6 +10,7 @@
 
 import {
   getActiveAccount,
+  getActiveProfile,
   listProfilesForAccount,
   selectProfile,
   createProfile,
@@ -19,6 +20,7 @@ import {
   assertPassword,
 } from '../data/auth-accounts.js';
 import { ensureBackendSession } from '../utils/backendClient.js';
+import { store } from '../data/store.js';
 
 export async function renderProfilesPage(container) {
   const el = container || document.getElementById('app');
@@ -42,6 +44,15 @@ export async function renderProfilesPage(container) {
 
   el.innerHTML = buildProfilesHtml(account, profiles, lastProfileId);
   setupProfilesPageEvents(el, account.id, profiles);
+
+  // If the currently active profile in session matches the last-used profile,
+  // skip the password modal and go straight to the dashboard.
+  const currentProfile = getActiveProfile();
+  if (currentProfile && lastProfileId && currentProfile.id === lastProfileId) {
+    store.reloadFromStorage();
+    window.location.hash = '#/dashboard';
+    return;
+  }
 
   // Auto-open the password modal on the last-used profile so the user
   // only needs to type the profile password to enter the app.
@@ -268,6 +279,8 @@ async function handleProfileLoginSubmit(el, modal, accountId) {
   try {
     await ensureBackendSession().catch(() => null);
     await selectProfile(profileId, password);
+    store.reloadFromStorage();
+    await store.syncWithBackend().catch(() => null);
     modal.style.display = 'none';
     window.location.hash = '#/dashboard';
   } catch (err) {

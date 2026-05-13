@@ -174,10 +174,11 @@ html.fullscreen-route #app {
   .sidebar {
     position: fixed;
     left: -100%;
-    z-index: 100;
+    z-index: 200;
     transition: left var(--transition-base);
     height: 100dvh;
     width: var(--sidebar-width);
+    will-change: transform;
   }
   .sidebar.open {
     left: 0;

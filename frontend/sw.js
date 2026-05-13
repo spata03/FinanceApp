@@ -1,4 +1,4 @@
-const CACHE_NAME = 'finanza-personale-v13';
+const CACHE_NAME = 'finanza-personale-v14';
 const APP_SHELL = [
   './',
   './index.html',

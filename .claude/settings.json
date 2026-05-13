@@ -65,7 +65,8 @@
       "Bash(npx neonctl@latest api-keys create --name \"claude-code-mcp\" -o json)",
       "Bash(npx neonctl@latest --help)",
       "Bash(npx neonctl@latest init --agent code)",
-      "Bash(npx neonctl@latest init --agent claude)"
+      "Bash(npx neonctl@latest init --agent claude)",
+      "Read(//c/Users/Andre Spataro/.gemini/antigravity/scratch/personal-finance-app/.claude/worktrees/agent-a25d4782452bd90c5/frontend/src/data/**)"
     ]
   },
   "agent": "orchestrator"

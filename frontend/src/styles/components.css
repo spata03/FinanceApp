@@ -296,7 +296,7 @@
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(4px);
-  z-index: 200;
+  z-index: 300;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -383,7 +383,7 @@
   position: fixed;
   top: var(--sp-4);
   right: var(--sp-4);
-  z-index: 160;
+  z-index: 220;
 }
 
 .account-widget {
