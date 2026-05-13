@@ -100,7 +100,14 @@ function renderWidget(root) {
   });
 
   root.querySelectorAll('[data-account-action]').forEach(actionBtn => {
-    actionBtn.addEventListener('click', async () => {
+    actionBtn.addEventListener('click', async (event) => {
+      // Without these two calls the click bubbles up to the document and is
+      // picked up by `closeOnOutside`, which on mobile causes the menu to
+      // re-render mid-flight and the new modal to close itself instantly.
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
       setOpen(false);
       document.removeEventListener('click', closeOnOutside);
       if (root._closeOnOutside === closeOnOutside) root._closeOnOutside = null;

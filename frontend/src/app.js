@@ -40,6 +40,10 @@ const ROUTES = {
 
 // ── Shell restore ─────────────────────────────────────────────────────────────
 function ensureAppShell() {
+  // Always close the mobile drawer first: navigating after a profile switch
+  // must never leave the overlay covering the screen in a half-transparent state.
+  closeMobileSidebar();
+
   // When accounts/profiles pages render, they write into #app directly,
   // destroying the sidebar and main-content. Before rendering a regular page,
   // we must ensure the shell is intact.
@@ -146,6 +150,10 @@ function ensureAppShell() {
 function navigateTo(page) {
   if (!ROUTES[page]) page = 'dashboard';
 
+  // Always start by closing the mobile drawer so navigating from the
+  // UserMenu (or any in-app button) never leaves a stale overlay attached.
+  closeMobileSidebar();
+
   // Pagine che non hanno sidebar
   const noSidebarPages = ['accounts', 'profiles'];
   const hasNoSidebar = noSidebarPages.includes(page);
@@ -249,9 +257,16 @@ function bindSidebar() {
 
       icon.style.animation = 'pulse 1s infinite';
       text.textContent = 'Sincronizzazione...';
-      
+
       try {
-        const res = await store.syncWithBackend();
+        // Run both in parallel: state sync + account/profiles cache refresh so
+        // profiles created elsewhere appear immediately after manual sync.
+        const [res] = await Promise.all([
+          store.syncWithBackend(),
+          checkAndRestoreSession().catch(() => null),
+        ]);
+        // Keep the user widget consistent with the freshly-pulled profile list.
+        try { refreshUserMenu(); } catch (_) {}
         if (res.available) {
           text.textContent = res.direction === 'none' ? 'Già aggiornato' : 'Sincronizzato!';
           time.textContent = 'Ultimo: ' + new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
@@ -328,6 +343,23 @@ function registerServiceWorker() {
 }
 
 // ── Responsive: sidebar su mobile ────────────────────────────────────────────
+
+// Module-level state so we can remove the previous matchMedia listener before
+// re-registering one when the shell is restored.
+let _mqMobile = null;
+let _mqMobileListener = null;
+
+/**
+ * Close the mobile sidebar drawer + overlay if currently open.
+ * Idempotent and safe to call when the shell hasn't been built yet.
+ */
+function closeMobileSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar) sidebar.classList.remove('open');
+  const overlay = document.getElementById('mobile-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
 function setupMobileSidebar() {
   const sidebar = document.getElementById('sidebar');
 
@@ -336,6 +368,14 @@ function setupMobileSidebar() {
   if (existingHamburger) existingHamburger.remove();
   const existingOverlay = document.querySelector('#mobile-overlay');
   if (existingOverlay) existingOverlay.remove();
+
+  // Drop any previously-registered matchMedia listener so we don't stack
+  // duplicate handlers that fight over hamburger visibility.
+  if (_mqMobile && _mqMobileListener) {
+    try { _mqMobile.removeEventListener('change', _mqMobileListener); } catch (_) {}
+    _mqMobile = null;
+    _mqMobileListener = null;
+  }
 
   const hamburger = document.createElement('button');
   hamburger.id        = 'hamburger-btn';
@@ -358,21 +398,25 @@ function setupMobileSidebar() {
   `;
   document.body.appendChild(overlay);
 
-  const openSidebar  = () => { sidebar.classList.add('open');    overlay.style.display = 'block'; };
-  const closeSidebar = () => { sidebar.classList.remove('open'); overlay.style.display = 'none'; };
+  const openSidebar  = () => {
+    if (sidebar) sidebar.classList.add('open');
+    overlay.style.display = 'block';
+  };
 
   hamburger.addEventListener('click', openSidebar);
-  overlay.addEventListener('click', closeSidebar);
+  overlay.addEventListener('click', closeMobileSidebar);
   document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', closeSidebar);
+    btn.addEventListener('click', closeMobileSidebar);
   });
 
   const mq = window.matchMedia('(max-width: 900px)');
   const toggleHamburger = e => {
     hamburger.style.display = e.matches ? 'block' : 'none';
-    if (!e.matches) closeSidebar();
+    if (!e.matches) closeMobileSidebar();
   };
   mq.addEventListener('change', toggleHamburger);
+  _mqMobile = mq;
+  _mqMobileListener = toggleHamburger;
   toggleHamburger(mq);
 }
 
@@ -410,7 +454,12 @@ async function init() {
     if (autoSyncInProgress || !getActiveProfile()) return;
     autoSyncInProgress = true;
     try {
-      const result = await store.syncWithBackend();
+      // Refresh the profiles cache in parallel so the menu and the profiles
+      // grid stay current with new profiles created on other devices.
+      const [result] = await Promise.all([
+        store.syncWithBackend(),
+        checkAndRestoreSession().catch(() => null),
+      ]);
       if (result.available) {
         lastAutoSync = Date.now();
         if (syncTimeEl) {

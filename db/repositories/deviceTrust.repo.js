@@ -51,6 +51,26 @@ export async function findActiveTrust({ accountId, profileId, tokenHash }) {
   return rowToTrust(rows[0]);
 }
 
+/**
+ * Look up an active account-level trust row (profile_id IS NULL). Used to
+ * allow password-less profile switching across all profiles of the same
+ * account on a previously-trusted device.
+ */
+export async function findActiveAccountTrust({ accountId, tokenHash }) {
+  const sql = getSql();
+  const now = Date.now();
+  const rows = await sql`
+    SELECT * FROM device_trust
+    WHERE account_id = ${accountId}
+      AND profile_id IS NULL
+      AND token_hash = ${tokenHash}
+      AND revoked_at IS NULL
+      AND (expires_at IS NULL OR expires_at > ${now})
+    LIMIT 1
+  `;
+  return rowToTrust(rows[0]);
+}
+
 export async function touchTrust(id) {
   const sql = getSql();
   await sql`UPDATE device_trust SET last_used_at = ${Date.now()} WHERE id = ${id}`;

@@ -428,6 +428,14 @@
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
   flex: 0 0 auto;
+  /* Ensure the single initial sits exactly in the middle: kill descender drift
+     from inherited line-height and any odd font baselines. */
+  line-height: 1;
+  text-align: center;
+  padding: 0;
+  font-feature-settings: normal;
+  font-variant-numeric: normal;
+  text-transform: uppercase;
 }
 
 .account-avatar--lg {

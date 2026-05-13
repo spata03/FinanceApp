@@ -119,6 +119,12 @@ function renderLoginForm(cachedAccount) {
             <label class="form-label" for="login-password">Password</label>
             <input class="form-input" id="login-password" name="password" type="password" autocomplete="current-password" minlength="8" required placeholder="password account" />
           </div>
+          <div class="form-group" style="display:flex; align-items:center; gap:0.5rem;">
+            <input type="checkbox" id="login-trust-device" name="trustDevice" checked />
+            <label for="login-trust-device" style="font-size:0.85rem; color:var(--clr-text-subtle); cursor:pointer;">
+              Ricorda questo dispositivo
+            </label>
+          </div>
 
           <p class="auth-error" id="account-error" role="alert" style="display:none;"></p>
           <button class="btn btn--primary" type="submit" id="account-submit-btn">Accedi</button>
@@ -176,8 +182,10 @@ function setupAccountsPageEvents(el, isLoginMode) {
         showError(el, '');
         setLoading(el, true);
         const data = Object.fromEntries(new FormData(form));
+        // `FormData` returns "on" for checked checkboxes, undefined otherwise.
+        const trustDevice = data.trustDevice === 'on' || data.trustDevice === true;
         try {
-          await loginAccount({ email: data.email, password: data.password });
+          await loginAccount({ email: data.email, password: data.password, trustDevice });
           window.location.hash = '#/profiles';
         } catch (err) {
           showError(el, err.message);

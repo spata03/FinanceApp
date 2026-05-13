@@ -128,20 +128,24 @@ export async function registerAccount(email, password, profileUsername, profileP
   });
 }
 
-export async function loginAccount(email, password) {
+export async function loginAccount(email, password, options = {}) {
   // Always fetch a fresh session before login to get a valid CSRF token
   invalidateSession();
   const session = await fetchSession().catch(() => ({ available: false }));
   if (!session.available) throw new Error('Server non raggiungibile.');
 
+  const trustDevice = options?.trustDevice === true;
+
   return requestWithCsrfRetry(async () => {
+    const body = { email, password };
+    if (trustDevice) body.trustDevice = true;
     const result = await requestJson('/api/auth/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Token': _csrfToken || '',
       },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(body),
     });
     if (result.csrfToken) _csrfToken = result.csrfToken;
     return result;
@@ -162,7 +166,7 @@ export async function loginAccount(email, password) {
  * Returns the parsed JSON payload, which may include `deviceTrustToken`.
  */
 export async function selectProfile(profileId, options = {}) {
-  const { password, deviceTrustToken, trustDevice } = options || {};
+  const { password, deviceTrustToken, accountTrustToken, trustDevice } = options || {};
   return requestWithCsrfRetry(async () => {
     if (!_csrfToken) {
       const session = await ensureFreshSession();
@@ -171,6 +175,7 @@ export async function selectProfile(profileId, options = {}) {
     const body = { profileId };
     if (typeof password === 'string' && password.length > 0) body.password = password;
     if (typeof deviceTrustToken === 'string' && deviceTrustToken) body.deviceTrustToken = deviceTrustToken;
+    if (typeof accountTrustToken === 'string' && accountTrustToken) body.accountTrustToken = accountTrustToken;
     if (trustDevice === true) body.trustDevice = true;
 
     const result = await requestJson('/api/auth/profile/select', {

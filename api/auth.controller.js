@@ -105,6 +105,7 @@ export async function login(req, res) {
   const body = await readBody(req);
   const email = normalizeEmail(body.email || '');
   const password = String(body.password || '');
+  const wantsAccountTrust = body.trustDevice === true;
 
   const account = await accountsRepo.getAccountByEmail(email);
   if (!account || !accountsRepo.verifyPassword(password, account)) {
@@ -125,10 +126,32 @@ export async function login(req, res) {
     storageKey: p.storageKey,
   }));
 
+  // Issue an account-level device-trust token so subsequent profile switches
+  // on this device can skip the password modal (Bug 4).
+  let accountTrustToken = null;
+  if (wantsAccountTrust) {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = sha256Hex(rawToken);
+    try {
+      await deviceTrustRepo.createTrust({
+        id: generateId(),
+        accountId: account.id,
+        profileId: null,
+        tokenHash,
+        expiresAtMs: Date.now() + DEVICE_TRUST_TTL_MS,
+      });
+      accountTrustToken = rawToken;
+    } catch (e) {
+      // Non-fatal: the user can still log in, just without password-less unlock.
+      console.warn('[auth] account-trust token mint failed:', e?.message || e);
+    }
+  }
+
   sendJson(res, 200, {
     account: { id: account.id, email: account.email, lastProfileId: account.lastProfileId || null },
     profiles,
     csrfToken,
+    ...(accountTrustToken ? { accountTrustToken } : {}),
   });
 }
 
@@ -148,6 +171,7 @@ export async function selectProfile(req, res) {
   const profileId = String(body.profileId || '').trim();
   const password = typeof body.password === 'string' ? body.password : '';
   const deviceTrustToken = typeof body.deviceTrustToken === 'string' ? body.deviceTrustToken.trim() : '';
+  const accountTrustToken = typeof body.accountTrustToken === 'string' ? body.accountTrustToken.trim() : '';
   const wantsTrust = body.trustDevice === true;
 
   const profile = await profilesRepo.getProfile(profileId);
@@ -163,7 +187,12 @@ export async function selectProfile(req, res) {
   // Path A: client supplied a device-trust token — try a password-less unlock.
   // On any failure we deliberately return the same 401 the password path uses
   // so callers cannot tell whether the token or the password was the issue.
+  //
+  // We honour BOTH the legacy per-profile trust (`deviceTrustToken`) and the
+  // newer account-level trust (`accountTrustToken`). The per-profile token is
+  // tried first to preserve existing behaviour for already-trusted profiles.
   let trustedRow = null;
+  let accountTrustRow = null;
   if (deviceTrustToken) {
     const tokenHash = sha256Hex(deviceTrustToken);
     trustedRow = await deviceTrustRepo.findActiveTrust({
@@ -172,6 +201,16 @@ export async function selectProfile(req, res) {
       tokenHash,
     });
     if (!trustedRow) {
+      sendJson(res, 401, { error: 'Password profilo non corretta.' });
+      return;
+    }
+  } else if (accountTrustToken) {
+    const tokenHash = sha256Hex(accountTrustToken);
+    accountTrustRow = await deviceTrustRepo.findActiveAccountTrust({
+      accountId: session.account_id,
+      tokenHash,
+    });
+    if (!accountTrustRow) {
       sendJson(res, 401, { error: 'Password profilo non corretta.' });
       return;
     }
@@ -192,6 +231,8 @@ export async function selectProfile(req, res) {
   if (trustedRow) {
     // Refresh "last used" for telemetry / future cleanup.
     await deviceTrustRepo.touchTrust(trustedRow.id).catch(() => null);
+  } else if (accountTrustRow) {
+    await deviceTrustRepo.touchTrust(accountTrustRow.id).catch(() => null);
   } else if (wantsTrust) {
     // Issue a fresh trust token after a successful password login.
     const rawToken = crypto.randomBytes(32).toString('hex');

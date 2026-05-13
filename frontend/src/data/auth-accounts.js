@@ -22,6 +22,9 @@ import {
   getDeviceTrustToken,
   setDeviceTrustToken,
   clearDeviceTrustForProfile,
+  getAccountTrustToken,
+  setAccountTrustToken,
+  clearAccountTrustToken,
 } from './device-trust.js';
 
 // ── localStorage keys (v3 — do NOT delete v1/v2 keys) ─────────────────────────
@@ -158,11 +161,11 @@ export async function registerAccount({ email, password, profileUsername, profil
  * Login with email + password. Returns account + profiles list.
  * Does NOT select a profile yet.
  */
-export async function loginAccount({ email, password }) {
+export async function loginAccount({ email, password, trustDevice = true }) {
   const cleanEmail = assertEmail(email);
   assertPassword(password);
 
-  const result = await backendLogin(cleanEmail, password);
+  const result = await backendLogin(cleanEmail, password, { trustDevice: trustDevice === true });
 
   // Cache account (with profiles list but no active profile yet)
   const accountCache = {
@@ -179,16 +182,23 @@ export async function loginAccount({ email, password }) {
   // Update legacy active account key
   setActiveAccountId(result.account.id);
 
+  // Persist the account-level trust token (if the server issued one) so the
+  // next profile switch on this device can skip the password modal.
+  if (result && typeof result.accountTrustToken === 'string' && result.accountTrustToken) {
+    setAccountTrustToken(result.account.id, result.accountTrustToken);
+  }
+
   return result;
 }
 
 /**
  * Select and authenticate a profile.
  *
- * Supports three call shapes (the second is kept for backward compatibility):
+ * Supports four call shapes (kept for backward compatibility):
  *   selectProfile(profileId, { password, trustDevice })
  *   selectProfile(profileId, 'plaintext-password')          // legacy
- *   selectProfile(profileId, { deviceTrustToken })          // password-less unlock
+ *   selectProfile(profileId, { deviceTrustToken })          // per-profile unlock
+ *   selectProfile(profileId, { accountTrustToken })         // account-level unlock
  *
  * When `trustDevice` is true and the password is correct, the backend returns a
  * `deviceTrustToken` which we persist under the active account so subsequent
@@ -200,8 +210,9 @@ export async function selectProfile(profileId, optionsOrPassword) {
     ? { password: optionsOrPassword }
     : (optionsOrPassword || {});
 
-  const hasToken = typeof options.deviceTrustToken === 'string' && options.deviceTrustToken.length > 0;
-  if (!hasToken) {
+  const hasProfileToken = typeof options.deviceTrustToken === 'string' && options.deviceTrustToken.length > 0;
+  const hasAccountToken = typeof options.accountTrustToken === 'string' && options.accountTrustToken.length > 0;
+  if (!hasProfileToken && !hasAccountToken) {
     // Token-less path: a password is required (and must meet the basic policy).
     assertPassword(options.password);
   }
@@ -209,6 +220,7 @@ export async function selectProfile(profileId, optionsOrPassword) {
   const result = await backendSelectProfile(profileId, {
     password: options.password,
     deviceTrustToken: options.deviceTrustToken,
+    accountTrustToken: options.accountTrustToken,
     trustDevice: options.trustDevice === true,
   });
 
@@ -273,7 +285,13 @@ export async function deleteProfile(accountId, profileId) {
 }
 
 // Re-export device-trust helpers so call sites can stay inside auth-accounts.
-export { getDeviceTrustToken, clearDeviceTrustForProfile };
+export {
+  getDeviceTrustToken,
+  clearDeviceTrustForProfile,
+  getAccountTrustToken,
+  setAccountTrustToken,
+  clearAccountTrustToken,
+};
 
 /**
  * Logout — calls backend, clears localStorage v3 keys.

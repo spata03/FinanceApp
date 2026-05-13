@@ -18,10 +18,13 @@ import {
   logoutAccount,
   assertUsername,
   assertPassword,
+  checkAndRestoreSession,
 } from '../data/auth-accounts.js';
 import {
   getDeviceTrustToken,
   clearDeviceTrustForProfile,
+  getAccountTrustToken,
+  clearAccountTrustToken,
 } from '../data/device-trust.js';
 import { ensureBackendSession } from '../utils/backendClient.js';
 import { store } from '../data/store.js';
@@ -29,6 +32,12 @@ import { refreshUserMenu } from '../components/UserMenu.js';
 
 export async function renderProfilesPage(container) {
   const el = container || document.getElementById('app');
+
+  // Refresh the cached profiles list from the backend before drawing the grid
+  // so profiles created on another device are visible after login or after a
+  // simple visit to this page (no manual sync required).
+  await checkAndRestoreSession().catch(() => null);
+
   const account = getActiveAccount();
 
   if (!account) {
@@ -220,6 +229,30 @@ function setupProfilesPageEvents(el, accountId, profiles) {
             clearDeviceTrustForProfile(accountId, profileId);
           }
           console.warn('[profiles] device-trust unlock failed:', err?.message || err);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      // Second attempt: account-level trust token (covers every profile of the
+      // same account on this device, so switching profile after login is
+      // password-less). Falls back to the modal on any failure.
+      const accountToken = getAccountTrustToken(accountId);
+      if (accountToken) {
+        btn.disabled = true;
+        try {
+          await ensureBackendSession().catch(() => null);
+          await selectProfile(profileId, { accountTrustToken: accountToken });
+          store.reloadFromStorage();
+          refreshUserMenu();
+          store.syncWithBackend().catch(() => null);
+          window.location.hash = '#/dashboard';
+          return;
+        } catch (err) {
+          if (err && (err.status === 401 || err.status === 403)) {
+            clearAccountTrustToken(accountId);
+          }
+          console.warn('[profiles] account-trust unlock failed:', err?.message || err);
         } finally {
           btn.disabled = false;
         }

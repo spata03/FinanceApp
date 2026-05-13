@@ -80,7 +80,12 @@
       "Bash(node --check frontend/src/utils/backendClient.js)",
       "Bash(node --check frontend/src/app.js)",
       "Bash(node -e \"import\\('./db/migrate.js'\\).then\\(m => { const fs = require\\('fs'\\); const sql = fs.readFileSync\\('db/migrations/002-device-trust.sql','utf8'\\); const stmts = m.splitSqlStatements\\(sql\\); console.log\\('Statements:', stmts.length\\); stmts.forEach\\(\\(s,i\\) => console.log\\('---', i, '---\\\\n', s.slice\\(0,200\\)\\)\\); }\\);\")",
-      "Bash(node -e \"import\\('./db/migrate.js'\\).then\\(m => { const fs = require\\('fs'\\); const sql = fs.readFileSync\\('db/migrations/002-device-trust.sql','utf8'\\); const stmts = m.splitSqlStatements\\(sql\\); stmts.forEach\\(\\(s,i\\) => { console.log\\('=== Stmt', i, 'len', s.length, '==='\\); console.log\\(s\\); console.log\\(\\); }\\); }\\);\")"
+      "Bash(node -e \"import\\('./db/migrate.js'\\).then\\(m => { const fs = require\\('fs'\\); const sql = fs.readFileSync\\('db/migrations/002-device-trust.sql','utf8'\\); const stmts = m.splitSqlStatements\\(sql\\); stmts.forEach\\(\\(s,i\\) => { console.log\\('=== Stmt', i, 'len', s.length, '==='\\); console.log\\(s\\); console.log\\(\\); }\\); }\\);\")",
+      "Bash(node --check api/sync.controller.js)",
+      "Bash(node --check frontend/src/pages/accounts.js)",
+      "Bash(node --check db/migrate.js)",
+      "Bash(npx neonctl@latest connection-string)",
+      "Bash(DATABASE_URL=\"postgresql://neondb_owner:npg_nxcPOb7hum3f@ep-crimson-bird-algmf1t2.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require\" node db/migrate.js)"
     ]
   },
   "agent": "orchestrator"
