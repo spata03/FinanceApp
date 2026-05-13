@@ -175,9 +175,6 @@ export async function loginAccount({ email, password, trustDevice = true }) {
     lastProfileId: result.account.lastProfileId || null,
   };
   writeJson(ACTIVE_ACCOUNT_KEY_V3, accountCache);
-  // Clear active profile on account login
-  localStorage.removeItem(ACTIVE_PROFILE_KEY_V3);
-  localStorage.removeItem(ACTIVE_PROFILE_KEY);
 
   // Update legacy active account key
   setActiveAccountId(result.account.id);
@@ -335,6 +332,10 @@ export async function checkAndRestoreSession() {
     if (result.profile) {
       writeJson(ACTIVE_PROFILE_KEY_V3, result.profile);
       setActiveProfileId(result.profile.id);
+    } else {
+      // Server confirmed no active profile in this session — clear any stale cache.
+      localStorage.removeItem(ACTIVE_PROFILE_KEY_V3);
+      localStorage.removeItem(ACTIVE_PROFILE_KEY);
     }
     setActiveAccountId(result.account.id);
 

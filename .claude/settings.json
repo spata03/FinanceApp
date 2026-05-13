@@ -90,7 +90,9 @@
       "Bash(node --input-type=module -e ' *)",
       "Bash(node --check \"c:\\\\Users\\\\Andrea Spataro\\\\.gemini\\\\antigravity\\\\scratch\\\\personal-finance-app\\\\frontend\\\\src\\\\pages\\\\profiles.js\")",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(node --check \"c:\\\\Users\\\\Andrea Spataro\\\\.gemini\\\\antigravity\\\\scratch\\\\personal-finance-app\\\\db\\\\repositories\\\\sessions.repo.js\")"
+      "Bash(node --check \"c:\\\\Users\\\\Andrea Spataro\\\\.gemini\\\\antigravity\\\\scratch\\\\personal-finance-app\\\\db\\\\repositories\\\\sessions.repo.js\")",
+      "Bash(node --check \"c:\\\\Users\\\\Andrea Spataro\\\\.gemini\\\\antigravity\\\\scratch\\\\personal-finance-app\\\\frontend\\\\src\\\\utils\\\\backendClient.js\")",
+      "Bash(node --check \"c:\\\\Users\\\\Andrea Spataro\\\\.gemini\\\\antigravity\\\\scratch\\\\personal-finance-app\\\\frontend\\\\src\\\\data\\\\auth-accounts.js\")"
     ]
   },
   "agent": "orchestrator"

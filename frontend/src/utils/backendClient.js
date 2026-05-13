@@ -131,7 +131,7 @@ export async function registerAccount(email, password, profileUsername, profileP
 export async function loginAccount(email, password, options = {}) {
   // Always fetch a fresh session before login to get a valid CSRF token
   invalidateSession();
-  const session = await fetchSession().catch(() => ({ available: false }));
+  const session = await ensureFreshSession();
   if (!session.available) throw new Error('Server non raggiungibile.');
 
   const trustDevice = options?.trustDevice === true;
